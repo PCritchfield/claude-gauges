@@ -8,23 +8,41 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   shellcheck:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: shellcheck
-        run: shellcheck statusline.sh tests/run.sh
+        run: |
+          shellcheck --version | head -2
+          git ls-files -z '*.sh' | xargs -0 shellcheck
 
   test:
     # macOS is the real target (bash 3.2, BSD find and stat); Linux keeps the
-    # script honest about GNU tools.
+    # script honest about GNU tools. The tests run the script with the same
+    # bash that runs them ($BASH), so /bin/bash here means bash 3.2 on macOS.
     strategy:
       fail-fast: false
       matrix:
         os: [macos-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: tool versions
+        run: |
+          /bin/bash --version | head -1
+          jq --version
+          git --version
       - name: tests
         run: /bin/bash tests/run.sh
