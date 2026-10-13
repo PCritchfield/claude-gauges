@@ -27,6 +27,9 @@ pass=0
 fail=0
 name=""
 
+# The script runs under this same bash ($BASH); on macOS CI that is bash 3.2.
+printf 'bash %s, %s\n' "$BASH_VERSION" "$(jq --version)"
+
 # ---- Helpers ----------------------------------------------------------------
 
 # The base stdin payload, with an optional jq object merged over it.
@@ -53,7 +56,7 @@ payload() {
 # The git cache is cleared first so no test sees another test's repo state.
 render_colour() {
   rm -rf "$TMPDIR"/claude-gauges-*
-  payload "${2:-}" | COLUMNS=$1 bash "$script"
+  payload "${2:-}" | COLUMNS=$1 "$BASH" "$script"
 }
 
 render() { NO_COLOR=1 render_colour "$@"; }
@@ -98,8 +101,23 @@ fits() {
   ok
 }
 
+# No ESC and no C1 control (UTF-8 c2 80..c2 9f, which some terminals treat as
+# escape-sequence openers) may reach NO_COLOR output.
 no_escape() {
-  if printf '%s' "$out" | LC_ALL=C grep -q $'\033'; then bad "ESC byte in NO_COLOR output"; else ok; fi
+  if printf '%s' "$out" | od -An -tx1 | tr -s ' \n' '  ' | grep -Eq '(^| )(1b|c2 [89][0-9a-f])( |$)'; then
+    bad "ESC or C1 byte in NO_COLOR output"
+  else
+    ok
+  fi
+}
+
+# No bidi or invisible formatting character may reach the output.
+no_bidi() {
+  if printf '%s' "$out" | od -An -tx1 | tr -s ' \n' '  ' | grep -Eq 'e2 80 (8[b-f]|a[89a-e])|e2 81 (a[0-49])|d8 9c|ef bb bf'; then
+    bad "bidi or invisible formatting character in output"
+  else
+    ok
+  fi
 }
 
 # ---- Existing segments --------------------------------------------------------
@@ -113,7 +131,7 @@ has "proj"
 has "42%"
 has "84k/200k tokens"
 has "\$1.23"
-has "5h 23%"
+has "5h 24%"
 has "7d 41%"
 no_escape
 
@@ -136,19 +154,19 @@ has "0%"
 lacks "tokens"
 
 name="no rate_limits (API key)"
-out=$(payload | jq -c 'del(.rate_limits)' | COLUMNS=80 NO_COLOR=1 bash "$script")
+out=$(payload | jq -c 'del(.rate_limits)' | COLUMNS=80 NO_COLOR=1 "$BASH" "$script")
 lacks "5h"
 lacks "7d"
 has "\$1.23"
 
 name="not JSON on stdin"
-out=$(printf 'garbage' | COLUMNS=80 NO_COLOR=1 bash "$script")
+out=$(printf 'garbage' | COLUMNS=80 NO_COLOR=1 "$BASH" "$script")
 code=$?
 if [ "$code" -eq 0 ]; then ok; else bad "exit $code"; fi
 has "0%"
 
 name="COLUMNS unset defaults to 80"
-out=$(payload | env -u COLUMNS NO_COLOR=1 bash "$script")
+out=$(payload | env -u COLUMNS NO_COLOR=1 "$BASH" "$script")
 fits 80
 
 # ---- Limits: pace -------------------------------------------------------------
@@ -196,7 +214,7 @@ has "${AMBER}7d 60% ↑120%"
 
 name="spend_limit falls back to fixed 50/80"
 out=$(render_colour 120 "{\"rate_limits\":{\"spend_limit\":{\"used_percentage\":62.8,\"resets_at\":$((NOW + 999999))}}}")
-has "${AMBER}spend 62%"
+has "${AMBER}spend 63%"
 
 # ---- Roster -------------------------------------------------------------------
 
@@ -363,6 +381,153 @@ for cols in 80 120; do
   has "⎇ feature/an-unreasonably"
 done
 rm -rf "$work/proj/.git" "$work/proj/a.txt"
+
+# ---- Security: git in an untrusted directory -------------------------------------
+
+name="security: repo config core.fsmonitor is not run"
+reset_sessions
+git -C "$work/proj" init -q -b main
+printf 'x\n' >"$work/proj/a.txt"
+git -C "$work/proj" add a.txt
+git -C "$work/proj" config core.fsmonitor "touch '$work/PWNED'; false"
+out=$(render 120)
+has "on ⎇ main"
+if [ -e "$work/PWNED" ]; then bad "core.fsmonitor ran"; else ok; fi
+rm -rf "$work/proj/.git" "$work/proj/a.txt" "$work/PWNED"
+
+name="security: embedded bare repository is not used"
+mkdir -p "$work/proj/evil/objects" "$work/proj/evil/refs"
+printf 'ref: refs/heads/main\n' >"$work/proj/evil/HEAD"
+printf '[core]\n\trepositoryformatversion = 0\n\tbare = false\n\tworktree = ..\n\tfsmonitor = touch %s; false\n' "'$work/PWNED'" >"$work/proj/evil/config"
+out=$(payload "{\"workspace\":{\"current_dir\":\"$work/proj/evil\"}}" | COLUMNS=120 NO_COLOR=1 "$BASH" "$script")
+has "(no git)"
+if [ -e "$work/PWNED" ]; then bad "embedded bare repo fsmonitor ran"; else ok; fi
+rm -rf "$work/proj/evil" "$work/PWNED"
+
+name="security: hostile branch name is sanitised"
+git -C "$work/proj" init -q -b main
+git -C "$work/proj" symbolic-ref HEAD "refs/heads/x$(printf '\302\2332J')y$(printf '\342\200\256')z"
+out=$(render 120)
+no_escape
+no_bidi
+has "⎇ x2Jyz"
+rm -rf "$work/proj/.git"
+
+# ---- Security: the sessions directory and its files --------------------------------
+
+name="untrusted: group-writable sessions dir ignored"
+reset_sessions
+session "$SELF" "me" working
+session "$A" "loose" needs-you
+chmod 0777 "$sessions"
+out=$(render 80)
+lines_are 2
+chmod 0700 "$sessions"
+
+name="untrusted: future mtime ignored"
+reset_sessions
+session "$SELF" "me" working
+session "$A" "future" needs-you
+touch -t 203001010000 "$sessions/$A.json"
+out=$(render 80)
+lines_are 2
+
+name="untrusted: newline in a file name cannot reach another path"
+reset_sessions
+session "$SELF" "me" working
+session "$A" "x" working
+mv "$sessions/$A.json" "$sessions/x
+planted.json"
+jq -cn '{v: 1, id: "planted", label: "planted", status: "needs-you", since: 0}' >"$work/proj/planted.json"
+out=$(cd "$work/proj" && payload | COLUMNS=80 NO_COLOR=1 "$BASH" "$script")
+lacks "planted"
+rm -f "$work/proj/planted.json"
+
+name="untrusted: stale files do not crowd out a live session"
+reset_sessions
+session "$SELF" "me" working
+for i in $(seq 10 34); do
+  id="eeeeeeee-0000-0000-0000-0000000000$i"
+  session "$id" "old$i" needs-you
+  touch -t 202001010000 "$sessions/$id.json"
+done
+session "$A" "fresh" needs-you
+out=$(render 80)
+has "2 sessions · 1 working · ◆ fresh needs you"
+
+name="untrusted: wider character set stripped"
+reset_sessions
+session "$SELF" "me" working
+session "$A" "a" needs-you "$(jq -cn '{label: "a\u061cb\u200bc\u2028d\u2060e\ufeffg"}')"
+out=$(render 80)
+no_bidi
+has "◆ abcdeg needs you"
+
+name="roster: newer v sorts with since 0"
+reset_sessions
+session "$SELF" "me" working
+session "$A" "alpha" needs-you '{"since":1}'
+session "$B" "bravo" needs-you '{"v":2,"since":999999999999999}'
+out=$(render 80)
+has "◆ bravo needs you · +1 more"
+
+# ---- Display details ----------------------------------------------------------------
+
+name="roster: one other session and no own file says 1 session"
+reset_sessions
+session "$A" "solo" idle
+out=$(render 80)
+has "1 session"
+lacks "1 sessions"
+
+name="roster: long needs text is cut"
+reset_sessions
+session "$SELF" "me" working
+session "$A" "a" needs-you '{"needs":"approve a very long tool name indeed"}'
+out=$(render 120)
+has "(approve a very long too…)"
+
+name="tokens under 1000 are shown raw"
+reset_sessions
+out=$(render 80 '{"context_window":{"current_usage":{"input_tokens":500,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}')
+has "500/200k tokens"
+
+name="COLUMNS not a number defaults to 80; tiny COLUMNS floors at 20"
+out=$(payload | COLUMNS=wide NO_COLOR=1 "$BASH" "$script")
+fits 80
+out=$(payload | COLUMNS=5 NO_COLOR=1 "$BASH" "$script")
+fits 20
+
+# ---- Pace boundaries ------------------------------------------------------------------
+
+name="pace: projected exactly 100 is amber"
+out=$(render_colour 120 "$(five_at 50 0.5)")
+has "${AMBER}5h 50% ↑100%"
+
+name="pace: raw exactly 80 is red"
+out=$(render_colour 120 "$(five_at 80 0.9)")
+has "${RED}5h 80%"
+
+name="pace: 10% elapsed boundary matches the mod (no projection)"
+out=$(render_colour 120 "$(five_at 15 0.1)")
+has "${SAFE}5h 15%"
+
+name="pace: reset time in the past clamps to a full window"
+out=$(render_colour 120 "{\"rate_limits\":{\"five_hour\":{\"used_percentage\":50,\"resets_at\":$((NOW - 60))}}}")
+has "${SAFE}5h 50%"
+
+name="pace: no reset time falls back to fixed 50/80"
+out=$(render_colour 120 '{"rate_limits":{"five_hour":{"used_percentage":55,"resets_at":null}}}')
+has "${AMBER}5h 55%"
+lacks "↑"
+
+name="pace: seven_day backstop"
+out=$(render_colour 120 "{\"rate_limits\":{\"seven_day\":{\"used_percentage\":81,\"resets_at\":$((NOW + 600000))}}}")
+has "${RED}7d 81%"
+
+name="pace: non-numeric percentage hides the limit"
+out=$(render 120 '{"rate_limits":{"five_hour":{"used_percentage":"lots","resets_at":0}}}')
+lacks "5h"
 
 # ---- Summary --------------------------------------------------------------------
 

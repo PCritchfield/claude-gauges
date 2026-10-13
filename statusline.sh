@@ -12,13 +12,21 @@
 #
 # Session files: ~/.claude/gauges/sessions/<id>.json, written by the gauges mod
 # (contract: SessionRecord, v 1). Any local process could write one, so each is
-# treated as untrusted: symlinks, other owners, files over 4 KB, stale files,
-# odd names, bad JSON and ids that do not match the file name are all skipped,
-# and every string is stripped of control and bidi characters before printing.
+# treated as untrusted: symlinks, other owners, a loosely-permissioned directory,
+# files over 4 KB, stale or future files, odd names, bad JSON and ids that do
+# not match the file name are all skipped.
+#
+# Every string that reaches the terminal (session fields, model, directory, git
+# branch) is stripped of control, bidi and invisible formatting characters.
+# git runs with the repository's fsmonitor disabled and implicit bare
+# repositories refused, so a cloned repo cannot run code through this script.
 # =============================================================================
 
-# Character counts and cuts below must be in characters, not bytes.
+# Character counts and cuts below must be in characters, not bytes, which
+# needs a UTF-8 locale. C.UTF-8 is on current macOS and Linux; else en_US.
 export LC_ALL=C.UTF-8
+probe='◆'
+[ "${#probe}" -eq 1 ] || export LC_ALL=en_US.UTF-8
 
 # uint NAME DEFAULT: sets NAME to DEFAULT unless it holds a non-negative integer.
 uint() { case "${!1}" in '' | *[!0-9]*) printf -v "$1" '%s' "$2" ;; esac; }
@@ -35,8 +43,20 @@ WIDE=0
 
 US=$'\037' # field separator: a control character, so sanitised text never holds one
 
-# Matches the mod's UNSAFE class: C0, DEL, C1, and the bidi controls.
-UNSAFE='[\x{0}-\x{1f}\x{7f}-\x{9f}\x{200e}\x{200f}\x{202a}-\x{202e}\x{2066}-\x{2069}]'
+# Stripped from every untrusted string: C0, DEL, C1 (escape-sequence openers),
+# the bidi controls (U+061C, U+200E-F, U+202A-E, U+2066-9), and the invisible
+# formatting characters (U+200B-D, U+2028-9, U+2060-4, U+FEFF, tags).
+# A superset of the mod's UNSAFE class in hooks/roster.ts.
+UNSAFE='[\x{0}-\x{1f}\x{7f}-\x{9f}\x{61c}\x{200b}-\x{200f}\x{2028}-\x{202e}\x{2060}-\x{2064}\x{2066}-\x{2069}\x{feff}\x{e0000}-\x{e007f}]'
+
+# Pace thresholds, named as in the mod's hooks/register.tsx. WARN_AT/HIGH_AT
+# are the mod's warnPercent/highPercent defaults; its user options do not
+# reach this script.
+WARN_AT=50
+HIGH_AT=80
+PACE_WARN=100
+PACE_HIGH=125
+MIN_ELAPSED=0.1
 
 # -----------------------------------------------------------------------------
 # Colours
@@ -88,12 +108,15 @@ seg() {
 
 # -----------------------------------------------------------------------------
 # Stdin: one jq pass. Limits get their pace level here, ported from the mod's
-# paceOf: projected = pct ÷ fraction of window elapsed; amber at >= 100, red at
-# >= 125 or raw >= 80; no projection before 10% of the window has elapsed; a
-# window with no reset time (spend_limit) uses fixed 50/80.
-# Each limit comes out as "pct:level:projected" (projected only when >= 100).
+# paceOf: projected = pct ÷ fraction of window elapsed; amber at >= PACE_WARN,
+# red at >= PACE_HIGH or raw >= HIGH_AT; no projection before MIN_ELAPSED of the
+# window; a window with no reset time (spend_limit) uses fixed WARN_AT/HIGH_AT.
+# Each limit comes out as "pct:level:projected" (projected only when it is at
+# least PACE_WARN). Percentages are rounded for display, as the mod does.
 # -----------------------------------------------------------------------------
-fields=$(jq -r --argjson now "$now" --arg unsafe "$UNSAFE" --arg us "$US" '
+fields=$(jq -r --argjson now "$now" --arg unsafe "$UNSAFE" --arg us "$US" \
+  --argjson warn_at "$WARN_AT" --argjson high_at "$HIGH_AT" \
+  --argjson pace_warn "$PACE_WARN" --argjson pace_high "$PACE_HIGH" --argjson min_elapsed "$MIN_ELAPSED" '
   def clean: if type == "string" then gsub($unsafe; "") else "" end;
   def num: if type == "number" then . else null end;
   def lim($w):
@@ -102,12 +125,12 @@ fields=$(jq -r --argjson now "$now" --arg unsafe "$UNSAFE" --arg us "$US" '
       | (if $w > 0 and (.resets_at | type) == "number"
          then [1, ([0, 1 - ((.resets_at - $now) / $w)] | max)] | min
          else null end) as $e
-      | (if $e != null and $e >= 0.1 then $p / $e else null end) as $proj
-      | (if $e == null then (if $p >= 80 then 2 elif $p >= 50 then 1 else 0 end)
-         elif $p >= 80 or ($proj != null and $proj >= 125) then 2
-         elif $proj != null and $proj >= 100 then 1
+      | (if $e != null and $e >= $min_elapsed then $p / $e else null end) as $proj
+      | (if $e == null then (if $p >= $high_at then 2 elif $p >= $warn_at then 1 else 0 end)
+         elif $p >= $high_at or ($proj != null and $proj >= $pace_high) then 2
+         elif $proj != null and $proj >= $pace_warn then 1
          else 0 end) as $level
-      | "\($p | floor):\($level):\(if $proj != null and $proj >= 100 then ($proj | floor) else "" end)"
+      | "\($p | round):\($level):\(if $proj != null and $proj >= $pace_warn then ($proj | floor) else "" end)"
     else "" end;
   (.context_window | if type == "object" then . else {} end) as $cw
   | ($cw.current_usage | if type == "object" then . else null end) as $u
@@ -137,15 +160,28 @@ case "$SESSION" in *[!A-Za-z0-9-]*) SESSION="" ;; esac
 # -----------------------------------------------------------------------------
 GIT_MAX_AGE=5
 
+# The working directory may be any cloned or extracted tree, so its git config
+# is untrusted. core.fsmonitor would run a command on every index read;
+# safe.bareRepository=explicit refuses a bare-repo layout planted inside a
+# checkout (whose config could set fsmonitor); diff.external and textconv
+# drivers are turned off on the diffs. -c is protected scope, so the repo
+# cannot override these. --no-optional-locks keeps this read-only, so it never
+# fights the user's own git for index.lock. Needs git 2.38+ for
+# safe.bareRepository; older git ignores it.
+gitx() {
+  git --no-optional-locks -c core.fsmonitor=false -c safe.bareRepository=explicit \
+    -c core.untrackedCache=false -C "$DIR" "$@" 2>/dev/null
+}
+
 git_status() {
-  if [ -n "$DIR" ] && git -C "$DIR" rev-parse --git-dir >/dev/null 2>&1; then
+  if [ -n "$DIR" ] && gitx rev-parse --git-dir >/dev/null; then
     local branch staged modified untracked
-    branch=$(git -C "$DIR" branch --show-current 2>/dev/null)
+    branch=$(gitx branch --show-current)
     [ -z "$branch" ] && branch="(detached)"
     # $(( )) drops the padding BSD wc puts around its count.
-    staged=$(($(git -C "$DIR" diff --cached --numstat 2>/dev/null | wc -l)))
-    modified=$(($(git -C "$DIR" diff --numstat 2>/dev/null | wc -l)))
-    untracked=$(($(git -C "$DIR" ls-files --others --exclude-standard 2>/dev/null | wc -l)))
+    staged=$(($(gitx diff --no-ext-diff --no-textconv --cached --numstat | wc -l)))
+    modified=$(($(gitx diff --no-ext-diff --no-textconv --numstat | wc -l)))
+    untracked=$(($(gitx ls-files --others --exclude-standard | wc -l)))
     printf '1%s%s%s%s%s%s%s%s' "$US" "$branch" "$US" "$staged" "$US" "$modified" "$US" "$untracked"
   else
     printf '0%s%s0%s0%s0' "$US" "$US" "$US" "$US"
@@ -170,14 +206,26 @@ fi
 if [ -z "$git_line" ]; then
   git_line=$(git_status)
   if [ -n "$cache_file" ]; then
-    printf '%s%s%s%s%s\n' "$real_now" "$US" "$DIR" "$US" "$git_line" >"$cache_file.$$" 2>/dev/null &&
-      mv -f "$cache_file.$$" "$cache_file" 2>/dev/null
+    # Re-assert the mode in case the directory pre-existed with looser bits.
+    chmod 700 "$cache_dir" 2>/dev/null
+    tmp="$cache_file.$$.$RANDOM"
+    printf '%s%s%s%s%s\n' "$real_now" "$US" "$DIR" "$US" "$git_line" >"$tmp" 2>/dev/null &&
+      mv -f "$tmp" "$cache_file" 2>/dev/null
   fi
 fi
 IFS=$US read -r IN_REPO BRANCH STAGED MODIFIED UNTRACKED <<<"$git_line"
 uint STAGED 0
 uint MODIFIED 0
 uint UNTRACKED 0
+
+# Branch names may hold any byte >= 0x80, including C1 escape openers and bidi
+# controls, and a clone's branch name is the remote's choice. Sanitised here,
+# at display, so a tampered cache file is covered too. Plain names skip jq.
+case "$BRANCH" in
+  *[![:alnum:]._/+@=\(\)-]*)
+    BRANCH=$(printf '%s' "$BRANCH" | jq -Rr --arg unsafe "$UNSAFE" 'gsub($unsafe; "")' 2>/dev/null)
+    ;;
+esac
 
 # -----------------------------------------------------------------------------
 # Line 1: model, directory, git
@@ -262,7 +310,8 @@ if [ -n "$COST_CENTS" ]; then
   seg "\$$((COST_CENTS / 100)).$cents" "$GOLD"
 fi
 if [ "$TOKENS" -gt 0 ]; then
-  tokens="$((TOKENS / 1000))k"
+  tokens=$TOKENS
+  [ "$TOKENS" -ge 1000 ] && tokens="$((TOKENS / 1000))k"
   [ "$CTX_SIZE" -gt 0 ] && tokens="$tokens/$((CTX_SIZE / 1000))k"
   seg "$tokens tokens" "$DIM"
 fi
@@ -271,72 +320,87 @@ LINE2=$L
 # -----------------------------------------------------------------------------
 # Line 3: the roster of other sessions
 # -----------------------------------------------------------------------------
-STALE_SECS=120
-MAX_FILES=20
+STALE_SECS=120  # the mod rewrites its file at least every 30 s
+FUTURE_SECS=60  # tolerated clock skew for an mtime ahead of now
+MAX_SCAN=200    # most candidate files looked at
+MAX_FILES=20    # most fresh files read, as in the mod
+ROSTER_VERSION=1
 NAME_RE='^[A-Za-z0-9-]{1,64}\.json$'
 
 roster() {
   case "${HOME:-}" in /*) ;; *) return ;; esac
   local dir="$HOME/.claude/gauges/sessions"
-  [ -d "$dir" ] && [ ! -L "$dir" ] || return
+  [ -d "$dir" ] && [ ! -L "$dir" ] && [ -O "$dir" ] || return
 
-  local found path base n=0 paths=() ids=()
-  found=$(find "$dir" -maxdepth 1 -type f -name '*.json' -user "$UID" -size -4097c 2>/dev/null)
+  # One find. It prints the directory itself if group or other can write to it
+  # (then nothing in it is trusted), and otherwise the candidate files. -mmin -3
+  # is only a coarse pre-filter (BSD rounds minutes up, GNU does not), so stale
+  # files never crowd out live ones; the exact cutoff is applied below.
+  local found path base n=0 paths=()
+  found=$(find "$dir" -maxdepth 1 \
+    \( -type d -name "${dir##*/}" \( -perm -020 -o -perm -002 \) -print \) -o \
+    \( -type f -name '*.json' -user "$UID" -size -4097c -mmin -3 -print \) 2>/dev/null)
   while IFS= read -r path; do
+    [ "$path" = "$dir" ] && return
     base=${path##*/}
-    [[ $base =~ $NAME_RE ]] || continue
+    # A newline in a file name splits it across two lines; requiring exactly
+    # "$dir/<id>.json" drops both halves.
+    [ "$path" = "$dir/$base" ] && [[ $base =~ $NAME_RE ]] || continue
     paths[n]=$path
-    ids[n]=${base%.json}
     n=$((n + 1))
-    [ "$n" -ge "$MAX_FILES" ] && break
+    [ "$n" -ge "$MAX_SCAN" ] && break
   done <<<"$found"
   [ "$n" -eq 0 ] && return
 
-  # Freshness is the file's mtime. One stat call for all of them.
-  local mtimes
+  # Freshness is the file's mtime. One stat call, printing each mtime with its
+  # path so a file vanishing in between cannot shift the pairing. On BSD the
+  # system stat is named outright: GNU coreutils first on PATH reads -f
+  # differently.
+  local stat_out
   case "$OSTYPE" in
-    darwin* | *bsd*) mtimes=$(stat -f '%m' -- "${paths[@]}" 2>/dev/null) ;;
-    *) mtimes=$(stat -c '%Y' -- "${paths[@]}" 2>/dev/null) ;;
+    darwin* | *bsd*) stat_out=$(/usr/bin/stat -f '%m %N' -- "${paths[@]}" 2>/dev/null) ;;
+    *) stat_out=$(stat -c '%Y %n' -- "${paths[@]}" 2>/dev/null) ;;
   esac
 
-  local i=0 k=0 mtime args=() filter=""
-  while IFS= read -r mtime; do
-    path=${paths[i]}
-    base=${ids[i]}
-    i=$((i + 1))
+  local k=0 mtime args=()
+  while read -r mtime path; do
     case "$mtime" in '' | *[!0-9]*) continue ;; esac
     [ $((real_now - mtime)) -lt "$STALE_SECS" ] || continue
-    [ $((mtime - real_now)) -lt 60 ] || continue
-    args+=(--rawfile "f$k" "$path" --arg "i$k" "$base")
-    filter="$filter{t:\$f$k,i:\$i$k},"
+    [ $((mtime - real_now)) -lt "$FUTURE_SECS" ] || continue
+    base=${path##*/}
+    [ "$path" = "$dir/$base" ] && [[ $base =~ $NAME_RE ]] || continue
+    args+=(--rawfile "f$k" "$path" --arg "i$k" "${base%.json}")
     k=$((k + 1))
-  done <<<"$mtimes"
+    [ "$k" -ge "$MAX_FILES" ] && break
+  done <<<"$stat_out"
   [ "$k" -eq 0 ] && return
 
   # First line: total, working, others, needs-you others.
   # Then one line per other session that needs you: label, what (v1 only).
-  jq -rn "${args[@]}" --arg self "$SESSION" --arg unsafe "$UNSAFE" --arg us "$US" "
-    def text(\$n):
-      if type == \"string\" then
-        gsub(\$unsafe; \"\") | sub(\"^\\\\s+\"; \"\") | sub(\"\\\\s+\$\"; \"\")
-        | if . == \"\" then null elif length > \$n then .[0:\$n - 1] + \"…\" else . end
+  # A record of a newer version shows label and status only, sorted as since 0.
+  jq -rn "${args[@]}" --argjson n "$k" --argjson version "$ROSTER_VERSION" \
+    --arg self "$SESSION" --arg unsafe "$UNSAFE" --arg us "$US" '
+    def text($max):
+      if type == "string" then
+        gsub($unsafe; "") | sub("^\\s+"; "") | sub("\\s+$"; "")
+        | if . == "" then null elif length > $max then .[0:$max - 1] + "…" else . end
       else null end;
-    [ [${filter%,}][]
-      | .i as \$id
-      | (.t | if length <= 4096 then (try fromjson catch null) else null end) as \$r
-      | select((\$r | type) == \"object\" and \$r.id == \$id and (\$r.v | type) == \"number\")
-      | (\$r.v > 1) as \$minimal
-      | { id: \$id,
-          label: ((\$r.label | text(20)) // \$id[0:8]),
-          status: (if \$r.status | IN(\"working\", \"needs-you\", \"idle\", \"ended\") then \$r.status else \"unknown\" end),
-          needs: (if \$minimal then null else (\$r.needs | text(24)) end),
-          since: (\$r.since | if type == \"number\" then . else 0 end) }
-      | select(.status != \"ended\") ] as \$live
-    | (\$live | map(select(.id != \$self))) as \$others
-    | (\$others | map(select(.status == \"needs-you\")) | sort_by(.since)) as \$waiting
-    | ([\$live, (\$live | map(select(.status == \"working\"))), \$others, \$waiting] | map(length | tostring) | join(\$us)),
-      (\$waiting[] | \"\(.label)\(\$us)\(.needs // \"\")\")
-  " 2>/dev/null
+    [ range(0; $n) as $j
+      | $ARGS.named["i\($j)"] as $id
+      | ($ARGS.named["f\($j)"] | if length <= 4096 then (try fromjson catch null) else null end) as $r
+      | select(($r | type) == "object" and $r.id == $id and ($r.v | type) == "number")
+      | ($r.v > $version) as $minimal
+      | { id: $id,
+          label: (($r.label | text(20)) // $id[0:8]),
+          status: (if $r.status | IN("working", "needs-you", "idle", "ended") then $r.status else "unknown" end),
+          needs: (if $minimal then null else ($r.needs | text(24)) end),
+          since: (if $minimal then 0 else ($r.since | if type == "number" then . else 0 end) end) }
+      | select(.status != "ended") ] as $live
+    | ($live | map(select(.id != $self))) as $others
+    | ($others | map(select(.status == "needs-you")) | sort_by(.since)) as $waiting
+    | ([$live, ($live | map(select(.status == "working"))), $others, $waiting] | map(length | tostring) | join($us)),
+      ($waiting[] | "\(.label)\($us)\(.needs // "")")
+  ' 2>/dev/null
 }
 
 LINE3=""
@@ -351,7 +415,9 @@ if [ -n "$roster_out" ]; then
     uint R_WAITING 0
     if [ "$R_OTHERS" -gt 0 ]; then
       line_start
-      seg "$R_TOTAL sessions" "$COBBLE"
+      sessions="sessions"
+      [ "$R_TOTAL" -eq 1 ] && sessions="session"
+      seg "$R_TOTAL $sessions" "$COBBLE"
       [ "$R_WORKING" -gt 0 ] && seg "$R_WORKING working" "$GREEN"
       shown=0
       max_shown=$((WIDE + 1))
