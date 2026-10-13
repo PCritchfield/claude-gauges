@@ -31,8 +31,7 @@ name=""
 
 # The base stdin payload, with an optional jq object merged over it.
 payload() {
-  local o=${1:-}
-  [ -n "$o" ] || o='{}'
+  local o=${1:-'{}'}
   jq -cn --arg dir "$work/proj" --arg self "$SELF" --argjson now "$NOW" --argjson o "$o" '{
     session_id: $self,
     model: { id: "claude-opus-5-5", display_name: "Opus 5.5" },
@@ -51,22 +50,17 @@ payload() {
 }
 
 # Renders at the given width: render COLUMNS [payload-override]
-render() {
-  local cols=$1
-  shift
-  payload "${1:-}" | COLUMNS=$cols NO_COLOR=1 bash "$script"
+# The git cache is cleared first so no test sees another test's repo state.
+render_colour() {
+  rm -rf "$TMPDIR"/claude-gauges-*
+  payload "${2:-}" | COLUMNS=$1 bash "$script"
 }
 
-render_colour() {
-  local cols=$1
-  shift
-  payload "${1:-}" | COLUMNS=$cols bash "$script"
-}
+render() { NO_COLOR=1 render_colour "$@"; }
 
 # Writes a v1 session file: session ID LABEL STATUS [jq-override]
 session() {
-  local o=${4:-}
-  [ -n "$o" ] || o='{}'
+  local o=${4:-'{}'}
   mkdir -p "$sessions"
   jq -cn --arg id "$1" --arg label "$2" --arg status "$3" --argjson o "$o" '{
     v: 1, id: $id, label: $label, branch: null, status: $status,
@@ -126,11 +120,10 @@ no_escape
 name="git branch and changes"
 git -C "$work/proj" init -q -b feature/gauges
 printf 'x\n' >"$work/proj/a.txt"
-rm -rf "$TMPDIR"/claude-gauges-*
 out=$(render 120)
 has "on ⎇ feature/gauges"
 has "?1"
-rm -rf "$work/proj/.git" "$work/proj/a.txt" "$TMPDIR"/claude-gauges-*
+rm -rf "$work/proj/.git" "$work/proj/a.txt"
 
 name="context hint at 75%"
 out=$(render 120 '{"context_window":{"used_percentage":80}}')
@@ -364,7 +357,6 @@ session "$A" "groupyBot-with-a-long-name" needs-you
 session "$B" "api" working
 big="{\"cost\":{\"total_cost_usd\":1234.56},\"context_window\":{\"used_percentage\":91},\"rate_limits\":{\"five_hour\":{\"used_percentage\":99,\"resets_at\":$((NOW + 100))},\"seven_day\":{\"used_percentage\":99,\"resets_at\":$((NOW + 100))},\"spend_limit\":{\"used_percentage\":99,\"resets_at\":$((NOW + 100))}}}"
 for cols in 80 120; do
-  rm -rf "$TMPDIR"/claude-gauges-*
   out=$(render "$cols" "$big")
   fits "$cols"
   lines_are 3

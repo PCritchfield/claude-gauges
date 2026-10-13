@@ -20,14 +20,15 @@
 # Character counts and cuts below must be in characters, not bytes.
 export LC_ALL=C.UTF-8
 
-input=$(cat)
+# uint NAME DEFAULT: sets NAME to DEFAULT unless it holds a non-negative integer.
+uint() { case "${!1}" in '' | *[!0-9]*) printf -v "$1" '%s' "$2" ;; esac; }
 
 real_now=$(date +%s)
 now=${GAUGES_NOW:-$real_now}
-case "$now" in '' | *[!0-9]*) now=$real_now ;; esac
+uint now "$real_now"
 
 COLS=${COLUMNS:-80}
-case "$COLS" in '' | *[!0-9]*) COLS=80 ;; esac
+uint COLS 80
 [ "$COLS" -lt 20 ] && COLS=20
 WIDE=0
 [ "$COLS" -ge 100 ] && WIDE=1
@@ -62,10 +63,6 @@ fi
 # A cuttable segment that does not fit is shortened with "…"; any other
 # segment that does not fit ends the line.
 # -----------------------------------------------------------------------------
-L=""
-W=0
-FULL=0
-
 line_start() {
   L=""
   W=0
@@ -96,7 +93,7 @@ seg() {
 # window with no reset time (spend_limit) uses fixed 50/80.
 # Each limit comes out as "pct:level:projected" (projected only when >= 100).
 # -----------------------------------------------------------------------------
-fields=$(printf '%s' "$input" | jq -r --argjson now "$now" --arg unsafe "$UNSAFE" '
+fields=$(jq -r --argjson now "$now" --arg unsafe "$UNSAFE" --arg us "$US" '
   def clean: if type == "string" then gsub($unsafe; "") else "" end;
   def num: if type == "number" then . else null end;
   def lim($w):
@@ -124,14 +121,14 @@ fields=$(printf '%s' "$input" | jq -r --argjson now "$now" --arg unsafe "$UNSAFE
       (.rate_limits.five_hour | lim(18000)),
       (.rate_limits.seven_day | lim(604800)),
       (.rate_limits.spend_limit | lim(0))
-    ] | map(tostring) | join("\u001f")
+    ] | map(tostring) | join($us)
 ' 2>/dev/null)
 
 IFS=$US read -r MODEL DIR SESSION PCT TOKENS CTX_SIZE COST_CENTS LIM_5H LIM_7D LIM_SPEND <<<"$fields"
 MODEL=${MODEL:-Unknown}
-case "$PCT" in '' | *[!0-9]*) PCT=0 ;; esac
-case "$TOKENS" in '' | *[!0-9]*) TOKENS=0 ;; esac
-case "$CTX_SIZE" in '' | *[!0-9]*) CTX_SIZE=0 ;; esac
+uint PCT 0
+uint TOKENS 0
+uint CTX_SIZE 0
 case "$COST_CENTS" in *[!0-9]*) COST_CENTS="" ;; esac
 case "$SESSION" in *[!A-Za-z0-9-]*) SESSION="" ;; esac
 
@@ -145,9 +142,10 @@ git_status() {
     local branch staged modified untracked
     branch=$(git -C "$DIR" branch --show-current 2>/dev/null)
     [ -z "$branch" ] && branch="(detached)"
-    staged=$(git -C "$DIR" diff --cached --numstat 2>/dev/null | wc -l | tr -d ' ')
-    modified=$(git -C "$DIR" diff --numstat 2>/dev/null | wc -l | tr -d ' ')
-    untracked=$(git -C "$DIR" ls-files --others --exclude-standard 2>/dev/null | wc -l | tr -d ' ')
+    # $(( )) drops the padding BSD wc puts around its count.
+    staged=$(($(git -C "$DIR" diff --cached --numstat 2>/dev/null | wc -l)))
+    modified=$(($(git -C "$DIR" diff --numstat 2>/dev/null | wc -l)))
+    untracked=$(($(git -C "$DIR" ls-files --others --exclude-standard 2>/dev/null | wc -l)))
     printf '1%s%s%s%s%s%s%s%s' "$US" "$branch" "$US" "$staged" "$US" "$modified" "$US" "$untracked"
   else
     printf '0%s%s0%s0%s0' "$US" "$US" "$US" "$US"
@@ -158,27 +156,28 @@ cache_dir="${TMPDIR:-/tmp}"
 cache_dir="${cache_dir%/}/claude-gauges-$UID"
 [ -e "$cache_dir" ] || mkdir -m 700 "$cache_dir" 2>/dev/null
 git_line=""
+cache_file=""
 if [ -d "$cache_dir" ] && [ ! -L "$cache_dir" ] && [ -O "$cache_dir" ]; then
   cache_file="$cache_dir/git-${SESSION:-default}"
   if [ -f "$cache_file" ] && [ ! -L "$cache_file" ]; then
     IFS=$US read -r c_time c_dir c_rest <"$cache_file"
-    case "$c_time" in '' | *[!0-9]*) c_time=0 ;; esac
+    uint c_time 0
     if [ "$c_dir" = "$DIR" ] && [ $((real_now - c_time)) -le "$GIT_MAX_AGE" ]; then
       git_line=$c_rest
     fi
   fi
-  if [ -z "$git_line" ]; then
-    git_line=$(git_status)
+fi
+if [ -z "$git_line" ]; then
+  git_line=$(git_status)
+  if [ -n "$cache_file" ]; then
     printf '%s%s%s%s%s\n' "$real_now" "$US" "$DIR" "$US" "$git_line" >"$cache_file.$$" 2>/dev/null &&
       mv -f "$cache_file.$$" "$cache_file" 2>/dev/null
   fi
-else
-  git_line=$(git_status)
 fi
 IFS=$US read -r IN_REPO BRANCH STAGED MODIFIED UNTRACKED <<<"$git_line"
-for v in STAGED MODIFIED UNTRACKED; do
-  case "${!v}" in '' | *[!0-9]*) eval "$v=0" ;; esac
-done
+uint STAGED 0
+uint MODIFIED 0
+uint UNTRACKED 0
 
 # -----------------------------------------------------------------------------
 # Line 1: model, directory, git
@@ -215,8 +214,8 @@ BAR_WIDTH=12
 FILLED=$((PCT * BAR_WIDTH / 100))
 EMPTY=$((BAR_WIDTH - FILLED))
 BAR=""
-[ "$FILLED" -gt 0 ] && BAR=$(printf "%${FILLED}s" | sed 's/ /▓/g')
-[ "$EMPTY" -gt 0 ] && BAR="${BAR}$(printf "%${EMPTY}s" | sed 's/ /░/g')"
+for ((j = 0; j < FILLED; j++)); do BAR="${BAR}▓"; done
+for ((j = 0; j < EMPTY; j++)); do BAR="${BAR}░"; done
 
 if [ "$PCT" -ge 90 ]; then
   BAR_COLOR=$DANGER
@@ -259,14 +258,13 @@ limit "5h" "$LIM_5H"
 limit "7d" "$LIM_7D"
 limit "spend" "$LIM_SPEND"
 if [ -n "$COST_CENTS" ]; then
-  seg "\$$((COST_CENTS / 100)).$(printf '%02d' $((COST_CENTS % 100)))" "$GOLD"
+  printf -v cents '%02d' $((COST_CENTS % 100))
+  seg "\$$((COST_CENTS / 100)).$cents" "$GOLD"
 fi
 if [ "$TOKENS" -gt 0 ]; then
-  if [ "$CTX_SIZE" -gt 0 ]; then
-    seg "$((TOKENS / 1000))k/$((CTX_SIZE / 1000))k tokens" "$DIM"
-  else
-    seg "$((TOKENS / 1000))k tokens" "$DIM"
-  fi
+  tokens="$((TOKENS / 1000))k"
+  [ "$CTX_SIZE" -gt 0 ] && tokens="$tokens/$((CTX_SIZE / 1000))k"
+  seg "$tokens tokens" "$DIM"
 fi
 LINE2=$L
 
@@ -282,12 +280,13 @@ roster() {
   local dir="$HOME/.claude/gauges/sessions"
   [ -d "$dir" ] && [ ! -L "$dir" ] || return
 
-  local found path base n=0 paths=()
+  local found path base n=0 paths=() ids=()
   found=$(find "$dir" -maxdepth 1 -type f -name '*.json' -user "$UID" -size -4097c 2>/dev/null)
   while IFS= read -r path; do
     base=${path##*/}
     [[ $base =~ $NAME_RE ]] || continue
     paths[n]=$path
+    ids[n]=${base%.json}
     n=$((n + 1))
     [ "$n" -ge "$MAX_FILES" ] && break
   done <<<"$found"
@@ -303,12 +302,12 @@ roster() {
   local i=0 k=0 mtime args=() filter=""
   while IFS= read -r mtime; do
     path=${paths[i]}
+    base=${ids[i]}
     i=$((i + 1))
     case "$mtime" in '' | *[!0-9]*) continue ;; esac
     [ $((real_now - mtime)) -lt "$STALE_SECS" ] || continue
     [ $((mtime - real_now)) -lt 60 ] || continue
-    base=${path##*/}
-    args+=(--rawfile "f$k" "$path" --arg "i$k" "${base%.json}")
+    args+=(--rawfile "f$k" "$path" --arg "i$k" "$base")
     filter="$filter{t:\$f$k,i:\$i$k},"
     k=$((k + 1))
   done <<<"$mtimes"
@@ -316,7 +315,7 @@ roster() {
 
   # First line: total, working, others, needs-you others.
   # Then one line per other session that needs you: label, what (v1 only).
-  jq -rn "${args[@]}" --arg self "$SESSION" --arg unsafe "$UNSAFE" "
+  jq -rn "${args[@]}" --arg self "$SESSION" --arg unsafe "$UNSAFE" --arg us "$US" "
     def text(\$n):
       if type == \"string\" then
         gsub(\$unsafe; \"\") | sub(\"^\\\\s+\"; \"\") | sub(\"\\\\s+\$\"; \"\")
@@ -329,39 +328,45 @@ roster() {
       | (\$r.v > 1) as \$minimal
       | { id: \$id,
           label: ((\$r.label | text(20)) // \$id[0:8]),
-          status: (if (\$r.status | type) == \"string\" and (\$r.status | IN(\"working\", \"needs-you\", \"idle\", \"ended\")) then \$r.status else \"unknown\" end),
+          status: (if \$r.status | IN(\"working\", \"needs-you\", \"idle\", \"ended\") then \$r.status else \"unknown\" end),
           needs: (if \$minimal then null else (\$r.needs | text(24)) end),
           since: (\$r.since | if type == \"number\" then . else 0 end) }
       | select(.status != \"ended\") ] as \$live
     | (\$live | map(select(.id != \$self))) as \$others
     | (\$others | map(select(.status == \"needs-you\")) | sort_by(.since)) as \$waiting
-    | \"\(\$live | length)\u001f\(\$live | map(select(.status == \"working\")) | length)\u001f\(\$others | length)\u001f\(\$waiting | length)\",
-      (\$waiting[] | \"\(.label)\u001f\(.needs // \"\")\")
+    | ([\$live, (\$live | map(select(.status == \"working\"))), \$others, \$waiting] | map(length | tostring) | join(\$us)),
+      (\$waiting[] | \"\(.label)\(\$us)\(.needs // \"\")\")
   " 2>/dev/null
 }
 
 LINE3=""
 roster_out=$(roster)
 if [ -n "$roster_out" ]; then
-  IFS=$US read -r R_TOTAL R_WORKING R_OTHERS R_WAITING <<<"$(printf '%s\n' "$roster_out" | head -n 1)"
-  if [ "${R_OTHERS:-0}" -gt 0 ] 2>/dev/null; then
-    line_start
-    seg "$R_TOTAL sessions" "$COBBLE"
-    [ "${R_WORKING:-0}" -gt 0 ] && seg "$R_WORKING working" "$GREEN"
-    shown=0
-    max_shown=1
-    [ "$WIDE" -eq 1 ] && max_shown=2
-    while IFS=$US read -r label what; do
-      [ -z "$label" ] && continue
-      [ "$shown" -ge "$max_shown" ] && break
-      text="◆ $label needs you"
-      [ "$WIDE" -eq 1 ] && [ -n "$what" ] && text="$text ($what)"
-      seg "$text" "$BOLD$FLAME"
-      shown=$((shown + 1))
-    done <<<"$(printf '%s\n' "$roster_out" | sed -n '2,$p')"
-    [ "$R_WAITING" -gt "$shown" ] && seg "+$((R_WAITING - shown)) more" "$FLAME"
-    LINE3=$L
-  fi
+  # Header line first, then one line per waiting session.
+  {
+    IFS=$US read -r R_TOTAL R_WORKING R_OTHERS R_WAITING
+    uint R_TOTAL 0
+    uint R_WORKING 0
+    uint R_OTHERS 0
+    uint R_WAITING 0
+    if [ "$R_OTHERS" -gt 0 ]; then
+      line_start
+      seg "$R_TOTAL sessions" "$COBBLE"
+      [ "$R_WORKING" -gt 0 ] && seg "$R_WORKING working" "$GREEN"
+      shown=0
+      max_shown=$((WIDE + 1))
+      while IFS=$US read -r label what; do
+        [ -z "$label" ] && continue
+        [ "$shown" -ge "$max_shown" ] && break
+        text="◆ $label needs you"
+        [ "$WIDE" -eq 1 ] && [ -n "$what" ] && text="$text ($what)"
+        seg "$text" "$BOLD$FLAME"
+        shown=$((shown + 1))
+      done
+      [ "$R_WAITING" -gt "$shown" ] && seg "+$((R_WAITING - shown)) more" "$FLAME"
+      LINE3=$L
+    fi
+  } <<<"$roster_out"
 fi
 
 printf '%s\n%s\n' "$LINE1" "$LINE2"
