@@ -275,11 +275,13 @@ else
   BAR_COLOR=$GREEN
 fi
 
+# From 75% context, a hint: GAUGES_CONTEXT_HINT if set (empty turns it off),
+# else /obsidian-summary, the author's session-summary skill.
 CTX_HINT=""
 if [ "$PCT" -ge 100 ]; then
   CTX_HINT="compaction imminent"
 elif [ "$PCT" -ge 75 ]; then
-  CTX_HINT="/obsidian-summary"
+  CTX_HINT=${GAUGES_CONTEXT_HINT-/obsidian-summary}
 fi
 
 # limit NAME "pct:level:projected"

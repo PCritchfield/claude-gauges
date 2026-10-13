@@ -148,6 +148,14 @@ out=$(render 120 '{"context_window":{"used_percentage":80}}')
 has "80%"
 has "/obsidian-summary"
 
+name="context hint is configurable"
+out=$(payload '{"context_window":{"used_percentage":80}}' | GAUGES_CONTEXT_HINT=/compact COLUMNS=120 NO_COLOR=1 "$BASH" "$script")
+has "80% /compact"
+lacks "/obsidian-summary"
+out=$(payload '{"context_window":{"used_percentage":80}}' | GAUGES_CONTEXT_HINT='' COLUMNS=120 NO_COLOR=1 "$BASH" "$script")
+has "80% · "
+lacks "/obsidian-summary"
+
 name="early session: null context fields"
 out=$(render 80 '{"context_window":{"used_percentage":null,"current_usage":null}}')
 has "0%"

@@ -17,9 +17,11 @@ Opus 5.5  claude-gauges on ⎇ main ?2
 outside a repository.
 
 **Line 2:**
-- The context bar and percentage. From 75% it adds a `/obsidian-summary` hint (the author's
-  session-summary skill; the command won't exist for you unless you have the same skill), and at
-  100% `compaction imminent`.
+- The context bar and percentage. From 75% it adds a hint, and at 100% `compaction imminent`.
+  The hint is `$GAUGES_CONTEXT_HINT`; set it to the command you use to save or compact a session
+  (`/compact`, say), or to an empty string for no hint. When it is unset the hint is
+  `/obsidian-summary`, the author's session-summary skill, which won't exist for you unless you
+  have the same skill.
 - **5h / 7d plan limits**, coloured by *pace* rather than raw usage:
   - projected = used % ÷ fraction of the window elapsed;
   - **amber** when projected ≥ 100%, **red** at ≥ 125% or raw ≥ 80%;
@@ -73,6 +75,9 @@ replaces any `statusLine` you already have:
   "padding": 0
 }
 ```
+
+To set the context hint, add it to the `env` object in the same file, e.g.
+`"env": { "GAUGES_CONTEXT_HINT": "/compact" }`.
 
 The status line updates on Claude Code's next refresh. To roll back, restore your previous
 `statusLine` value, or delete the key.
