@@ -345,7 +345,8 @@ roster() {
     base=${path##*/}
     # A newline in a file name splits it across two lines; requiring exactly
     # "$dir/<id>.json" drops both halves.
-    [ "$path" = "$dir/$base" ] && [[ $base =~ $NAME_RE ]] || continue
+    [ "$path" = "$dir/$base" ] || continue
+    [[ $base =~ $NAME_RE ]] || continue
     paths[n]=$path
     n=$((n + 1))
     [ "$n" -ge "$MAX_SCAN" ] && break
@@ -368,7 +369,8 @@ roster() {
     [ $((real_now - mtime)) -lt "$STALE_SECS" ] || continue
     [ $((mtime - real_now)) -lt "$FUTURE_SECS" ] || continue
     base=${path##*/}
-    [ "$path" = "$dir/$base" ] && [[ $base =~ $NAME_RE ]] || continue
+    [ "$path" = "$dir/$base" ] || continue
+    [[ $base =~ $NAME_RE ]] || continue
     args+=(--rawfile "f$k" "$path" --arg "i$k" "${base%.json}")
     k=$((k + 1))
     [ "$k" -ge "$MAX_FILES" ] && break
