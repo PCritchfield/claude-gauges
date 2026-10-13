@@ -1,0 +1,23 @@
+{
+  "name": "gauges",
+  "version": "0.2.0",
+  "description": "Live pane for every session: model, context, pace-based limits, cost, progress, and a roster of all local sessions",
+  "author": {
+    "name": "Phil Critchfield"
+  },
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "warnPercent": {
+      "type": "number",
+      "title": "Warn at (%)",
+      "description": "Context or a usage limit at or above this turns amber and toasts once",
+      "default": 50
+    },
+    "highPercent": {
+      "type": "number",
+      "title": "High at (%)",
+      "description": "Context or a usage limit at or above this turns red and toasts once",
+      "default": 80
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "claude-gauges",
+  "description": "Gauges for Claude Code: a live pane mod and a terminal status line",
+  "owner": {
+    "name": "Phil Critchfield"
+  },
+  "plugins": [
+    {
+      "name": "gauges",
+      "source": "./mod",
+      "description": "Live pane for every Claude Code session: context, pace-based limits, cost, progress, and a roster of all local sessions"
+    }
+  ]
+}

@@ -1,2 +1,6 @@
 .DS_Store
 .claude/worktrees/
+
+# Written by the Claude Code engine when it loads the mod
+mod/.claude-plugin/types/
+node_modules/
