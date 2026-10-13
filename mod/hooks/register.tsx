@@ -20,6 +20,8 @@ import {
   statusLine,
 } from './roster'
 import type { Identity } from './roster'
+import { DEFAULT_THRESHOLDS, levelOf, paceOf } from './pace'
+import type { Level, Pace, Thresholds } from './pace'
 
 const PANE = 'gauges'
 const IDLE: Turn = { isRunning: false, startedAt: 0, endedAt: 0, tools: 0, activity: null }
@@ -43,7 +45,6 @@ const WRITE_DELAY_MS = 2000
 const KEEPALIVE_MS = 30_000
 const READ_EVERY_MS = 5000
 
-type Level = 0 | 1 | 2
 type Reading = Pick<SessionUsage, 'context' | 'rateLimits' | 'cost'>
 
 // SVG is drawn as an image, so it carries no text and uses fixed hues that
@@ -55,13 +56,8 @@ const TRACK = 'rgba(128,128,128,0.28)'
 const MARKER = 'rgba(128,128,128,0.9)'
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const ACTIVE = new Set(['pending', 'running', 'waiting'])
-const WINDOW_MS: Record<string, number> = { five_hour: 5 * 3_600_000, seven_day: 7 * 86_400_000 }
-const PACE_WARN = 100
-const PACE_HIGH = 125
-const MIN_ELAPSED = 0.1
 
-let warnAt = 50
-let highAt = 80
+let thresholds: Thresholds = DEFAULT_THRESHOLDS
 let tickTimer: Timer | undefined
 let agentPoll: Timer | undefined
 let sessionFile: string | undefined
@@ -78,27 +74,6 @@ let isFirstRosterRead = true
 let seenAsks = new Set<string>()
 let othersWaiting: RosterRow[] = []
 let shownStatus: string | undefined
-
-function levelOf(pct?: number): Level {
-  return pct === undefined ? 0 : pct >= highAt ? 2 : pct >= warnAt ? 1 : 0
-}
-
-type Pace = { level: Level; elapsed?: number; projected?: number }
-
-// Limits follow pace: where usage lands at the reset if it keeps going.
-// Raw highAt is the backstop; before MIN_ELAPSED of the window only it applies.
-// A window of unknown length (a gateway's spend limit) uses the fixed levels.
-function paceOf(limit: Limit, now: number): Pace {
-  const windowMs = WINDOW_MS[limit.kind]
-  const resetsAt = limit.resetsAt === undefined ? NaN : Date.parse(limit.resetsAt)
-  if (windowMs === undefined || !Number.isFinite(resetsAt)) return { level: levelOf(limit.percentUsed) }
-  const elapsed = Math.min(1, Math.max(0, 1 - (resetsAt - now) / windowMs))
-  const isBackstop = limit.percentUsed >= highAt
-  if (elapsed < MIN_ELAPSED) return { level: isBackstop ? 2 : 0, elapsed }
-  const projected = limit.percentUsed / elapsed
-  const level: Level = isBackstop || projected >= PACE_HIGH ? 2 : projected >= PACE_WARN ? 1 : 0
-  return { level, elapsed, projected }
-}
 
 function startTick($: EngineInterface) {
   tickTimer ??= $.clock.every(1000, () => {
@@ -122,8 +97,8 @@ async function refreshAgents($: EngineInterface) {
 async function checkAlerts($: EngineInterface, usage: Usage) {
   const now = await $.clock.now()
   const readings = [
-    { id: 'context', label: 'Context', pct: usage.percent, pace: { level: levelOf(usage.percent) } as Pace, resetsAt: undefined as string | undefined },
-    ...usage.limits.map(l => ({ id: l.kind, label: `${limitLabel(l.kind)} limit`, pct: l.percentUsed, pace: paceOf(l, now), resetsAt: l.resetsAt })),
+    { id: 'context', label: 'Context', pct: usage.percent, pace: { level: levelOf(usage.percent, thresholds) } as Pace, resetsAt: undefined as string | undefined },
+    ...usage.limits.map(l => ({ id: l.kind, label: `${limitLabel(l.kind)} limit`, pct: l.percentUsed, pace: paceOf(l, now, thresholds), resetsAt: l.resetsAt })),
   ]
   const seen = await read($, alertsAtom)
   const levels: Record<string, number> = { ...seen }
@@ -257,7 +232,7 @@ async function refreshStatus($: EngineInterface) {
   const usage = await read($, usageAtom)
   const now = await $.clock.now()
   const warnings = (usage?.limits ?? []).flatMap(l => {
-    const pace = paceOf(l, now)
+    const pace = paceOf(l, now, thresholds)
     if (pace.level === 0) return []
     const label = limitLabel(l.kind)
     return [pace.projected === undefined ? `${label} at ${Math.round(l.percentUsed)}%` : `${label} on pace for ${Math.round(pace.projected)}%`]
@@ -309,8 +284,10 @@ async function storeUsage($: EngineInterface, reading: Reading) {
 }
 
 export const register: Register = (on, options) => {
-  warnAt = Number(options.warnPercent ?? 50)
-  highAt = Number(options.highPercent ?? 80)
+  thresholds = {
+    warnAt: Number(options.warnPercent ?? DEFAULT_THRESHOLDS.warnAt),
+    highAt: Number(options.highPercent ?? DEFAULT_THRESHOLDS.highAt),
+  }
   tickTimer = undefined
   agentPoll = undefined
   sessionFile = undefined
@@ -577,7 +554,7 @@ export const register: Register = (on, options) => {
 
     // Context
     const pct = usage?.percent
-    const ctxLevel = levelOf(pct)
+    const ctxLevel = levelOf(pct, thresholds)
     const ctxNumbers =
       usage?.tokens !== undefined ? `${kilo(usage.tokens)} / ${kilo(usage.window)}` : 'No reading yet'
     const context =
@@ -614,7 +591,7 @@ export const register: Register = (on, options) => {
       ) : (
         <Box flexDirection="column">
           {usage.limits.map(l => {
-            const pace = paceOf(l, clockNow)
+            const pace = paceOf(l, clockNow, thresholds)
             const detail = [
               pace.projected === undefined ? null : `on pace for ${Math.round(pace.projected)}%`,
               l.resetsAt === undefined ? null : `resets ${clock(Date.parse(l.resetsAt), clockNow)}`,

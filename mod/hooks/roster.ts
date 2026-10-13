@@ -67,7 +67,11 @@ export const STALE_MS = 2 * 60_000
 export const MAX_ROWS = 20
 
 const ROW_FILE = /^([A-Za-z0-9-]{1,64})\.json$/
-const UNSAFE = /[\u0000-\u001F\u007F-\u009F‎‏‪-‮⁦-⁩]/g
+// The same class as statusline.sh's UNSAFE: C0/C1 controls, bidi marks, embeddings,
+// overrides and isolates, zero-width and invisible characters, separators, the
+// BOM and tag characters. The shared vectors in contract-vectors.ts pin both.
+export const UNSAFE =
+  /[\u{0}-\u{1f}\u{7f}-\u{9f}\u{61c}\u{200b}-\u{200f}\u{2028}-\u{202e}\u{2060}-\u{2064}\u{2066}-\u{2069}\u{feff}\u{e0000}-\u{e007f}]/gu
 const STATUSES = new Set(['working', 'needs-you', 'idle', 'ended'])
 
 /** The session id a row file belongs to, or null for any other name. */
