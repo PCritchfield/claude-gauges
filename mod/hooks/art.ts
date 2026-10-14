@@ -1,11 +1,14 @@
 // Drawings: the header cat, per-session critters (decoration only: status is
 // always a word and a colour), and the SVGs. Pure, so each is tested.
 //
-// SVGs are drawn in a sandboxed frame that follows the app's light or dark
-// scheme and the OS reduced-motion setting, both through CSS media queries.
+// SVGs are drawn as images, not interactive frames: a frame reloads on every
+// redraw, and the pane redraws each second while Claude works, so frames
+// flicker. Greys are mid-tone, so they read on light and dark alike.
 // Animation plays only for a change: each one is anchored to when the value
 // changed, with a negative delay, so a redraw mid-way resumes rather than
-// restarts, and once ANIM_MS has passed the drawing carries none.
+// restarts, and once ANIM_MS has passed the drawing carries none. It honours
+// the OS reduced-motion setting through a CSS media query; motion: off is the
+// sure way to turn it off.
 import type { Change } from '../types'
 import type { Motion, Mood } from './copy'
 import type { Level } from './pace'
@@ -50,9 +53,7 @@ function animation(keyframes: string, change: Change | undefined, now: number, m
   )
 }
 
-const SCHEME =
-  '.t{fill:rgba(0,0,0,0.12)}.m{fill:rgba(0,0,0,0.55)}.r{stroke:rgba(0,0,0,0.12)}' +
-  '@media (prefers-color-scheme: dark){.t{fill:rgba(255,255,255,0.16)}.m{fill:rgba(255,255,255,0.7)}.r{stroke:rgba(255,255,255,0.16)}}'
+const SCHEME = '.t{fill:rgba(128,128,128,0.28)}.m{fill:rgba(128,128,128,0.9)}.l{font:9px sans-serif;fill:rgb(128,128,128)}'
 
 function svg(width: number, height: number, title: string, style: string, body: string): string {
   return (
@@ -90,28 +91,6 @@ export function tankSvg(o: {
   )
 }
 
-/** The context donut; a dashed ring when there is no reading. */
-export function donutSvg(o: {
-  pct: number | undefined
-  level: Level
-  title: string
-  change?: Change
-  now: number
-  motion: Motion
-}): string {
-  const r = 26
-  const c = 2 * Math.PI * r
-  const dash = (pct: number) => `${((clamp(pct) / 100) * c).toFixed(1)} ${c.toFixed(1)}`
-  const track = `<circle class="r" cx="32" cy="32" r="${r}" fill="none" stroke-width="8"${o.pct === undefined ? ' stroke-dasharray="4 4"' : ''}/>`
-  if (o.pct === undefined) return svg(64, 64, o.title, '', track)
-  const anim =
-    o.change === undefined
-      ? ''
-      : animation(`from{stroke-dasharray:${dash(o.change.from)}}to{stroke-dasharray:${dash(o.pct)}}`, o.change, o.now, o.motion)
-  const arc = `<circle class="a" cx="32" cy="32" r="${r}" fill="none" stroke="${HEX[o.level]}" stroke-width="8" stroke-linecap="round" stroke-dasharray="${dash(o.pct)}" transform="rotate(-90 32 32)"/>`
-  return svg(64, 64, o.title, anim, track + arc)
-}
-
 /** The week: one bar per day of the window, scaled to the busiest day, its weekday letter under it. */
 export function weekSvg(o: {
   days: { used: number; isFuture: boolean; isToday: boolean; letter: string }[]
@@ -134,7 +113,7 @@ export function weekSvg(o: {
     o.days.length * (bw + gap) - gap,
     h + 14,
     o.title,
-    '.l{font:9px sans-serif;fill:rgba(0,0,0,0.55)}@media (prefers-color-scheme: dark){.l{fill:rgba(255,255,255,0.7)}}',
+    '',
     bars,
   )
 }

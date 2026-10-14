@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, SessionUsage, Timer } from 'claude-code'
 
 import type { Limit, PrInfo, RepoInfo, RosterRow, Task, Turn, Usage } from '../types'
-import { ANIM_MS, blocks, cat, critterFor, donutSvg, tankSvg, weekSvg, weekText } from './art'
+import { ANIM_MS, blocks, cat, critterFor, tankSvg, weekSvg, weekText } from './art'
 import {
   alertText,
   clock,
@@ -863,36 +863,30 @@ export const register: Register = (on, options) => {
         </Box>
       )
 
-    // Context
+    // Context: a tank like the limits; the line under the header reads it too
     const ctxNumbers = usage?.tokens !== undefined ? `${kilo(usage.tokens)} / ${kilo(usage.window)}` : 'No reading yet'
     const ctxTitle = pct === undefined ? 'Context: no reading yet' : `Context ${Math.round(pct)}% used: ${ctxNumbers}`
-    const context =
-      Svg !== undefined ? (
-        <Box flexDirection="row" alignItems="center" gap={2}>
-          <Svg
-            key="donut"
-            source={donutSvg({ pct, level: ctxLevel, title: ctxTitle, change: changes.context, now: clockNow, motion })}
-            alt={ctxTitle}
-            width={64}
-            height={64}
-            isInteractive
-          />
-          <Box flexDirection="column">
-            <Text bold color={pct === undefined ? undefined : THEME[ctxLevel]}>
-              {pct === undefined ? '—' : `${pct}%`} {WORD[ctxLevel]}
-            </Text>
-            <Text dimColor>{ctxNumbers}</Text>
-          </Box>
-        </Box>
-      ) : (
-        <Box flexDirection="column">
-          <Text>
-            <Text color={pct === undefined ? undefined : THEME[ctxLevel]}>{blocks(pct ?? 0, barWidth)}</Text>{' '}
-            {pct === undefined ? '—' : `${pct}%`} {WORD[ctxLevel]}
+    const context = (
+      <Box flexDirection="column">
+        <Box flexDirection="row" gap={1} alignItems="center">
+          {Svg !== undefined ? (
+            <Svg
+              key="tank-context"
+              source={tankSvg({ pct: pct ?? 0, level: ctxLevel, width: 110, title: ctxTitle, change: changes.context, now: clockNow, motion })}
+              alt={ctxTitle}
+              width={110}
+              height={10}
+            />
+          ) : (
+            <Text color={pct === undefined ? undefined : THEME[ctxLevel]}>{blocks(pct ?? 0, barWidth)}</Text>
+          )}
+          <Text bold color={pct === undefined ? undefined : THEME[ctxLevel]}>
+            {pct === undefined ? '—' : `${Math.round(pct)}%`} {WORD[ctxLevel]}
           </Text>
-          <Text dimColor>{ctxNumbers}</Text>
         </Box>
-      )
+        <Text dimColor>{ctxNumbers}</Text>
+      </Box>
+    )
 
     // Usage limits: a tank each, with pace, ETA and reset
     const tank = (l: Limit, level: Level, elapsed: number | undefined, title: string) =>
@@ -903,7 +897,6 @@ export const register: Register = (on, options) => {
           alt={title}
           width={110}
           height={10}
-          isInteractive
         />
       ) : (
         <Text color={THEME[level]}>{blocks(l.percentUsed, barWidth, elapsed)}</Text>
@@ -966,7 +959,7 @@ export const register: Register = (on, options) => {
         <Box flexDirection="column" marginTop={1}>
           <Text bold>This week</Text>
           {Svg !== undefined ? (
-            <Svg key="week" source={weekSvg({ days, title: weekTitle })} alt={weekTitle} width={134} height={42} isInteractive />
+            <Svg key="week" source={weekSvg({ days, title: weekTitle })} alt={weekTitle} width={134} height={42} />
           ) : (
             <Box flexDirection="column">
               <Text>{weekText(days)}</Text>

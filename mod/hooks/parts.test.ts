@@ -1,7 +1,7 @@
 // The pane's pure parts: words, drawings, the week, the ETA.
 import { expect, test } from 'claude-code/testing'
 
-import { ANIM_MS, blocks, cat, CRITTERS, critterFor, donutSvg, tankSvg, weekSvg, weekText } from './art'
+import { ANIM_MS, blocks, cat, CRITTERS, critterFor, tankSvg, weekSvg, weekText } from './art'
 import { alertText, moodLine, moodOf, moodText, motionOf, paceText, span, styleOf } from './copy'
 import type { MoodSignals } from './copy'
 import { etaOf } from './pace'
@@ -67,11 +67,11 @@ test('critters are ASCII decoration, 6 cells, stable per session', () => {
   expect(blocks(50, 10, 0.5)).toBe('█████┃░░░░')
 })
 
-test('svgs carry a title, follow the scheme, and animate only within ANIM_MS of a change', () => {
+test('svgs carry a title, use mid-tone greys, and animate only within ANIM_MS of a change', () => {
   const base = { pct: 40, level: 0 as const, width: 100, title: '40% used <of 5h>', now: NOW, motion: 'system' as const }
   const still = tankSvg(base)
   expect(still).toContain('<title>40% used &#60;of 5h&#62;</title>')
-  expect(still).toContain('prefers-color-scheme: dark')
+  expect(still).toContain('rgba(128,128,128,0.28)')
   expect(still).not.toContain('@keyframes')
   const moving = tankSvg({ ...base, change: { from: 20, at: NOW - 200 } })
   expect(moving).toContain('prefers-reduced-motion: no-preference')
@@ -79,10 +79,6 @@ test('svgs carry a title, follow the scheme, and animate only within ANIM_MS of 
   expect(moving).toContain('scaleX(0.500)')
   expect(tankSvg({ ...base, change: { from: 20, at: NOW - ANIM_MS } })).not.toContain('@keyframes')
   expect(tankSvg({ ...base, motion: 'off', change: { from: 20, at: NOW } })).not.toContain('@keyframes')
-  expect(donutSvg({ pct: 60, level: 1, title: 't', now: NOW, motion: 'system', change: { from: 50, at: NOW } })).toContain(
-    '@keyframes',
-  )
-  expect(donutSvg({ pct: undefined, level: 0, title: 't', now: NOW, motion: 'system' })).toContain('stroke-dasharray="4 4"')
   expect(weekSvg({ days: [{ used: 3, isFuture: false, isToday: true, letter: 'M' }], title: 'w' })).toContain('<title>w</title>')
   expect(weekText([{ used: 4, isFuture: false }, { used: 0, isFuture: false }, { used: 0, isFuture: true }])).toBe('█   ·')
 })

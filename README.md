@@ -155,7 +155,7 @@ A Claude Code mod (a hooks plugin) that opens a **Gauges** pane:
   Claude's mood.
 - **Sessions:** once more than one is open, every local session with a status word, a small
   context bar, cost, and `+` when its repo has changes.
-- **Context** as a ring; **usage limits** as tanks coloured by pace (the same rule as the status
+- **Context** and the **usage limits** as tanks, the limits coloured by pace (the same rule as the status
   line), "on pace: 118% of weekly limit", and for the 5-hour window when it runs out at this
   rate ("out ~25m") or resets ("resets 2h18m").
 - **This week:** how much of the weekly limit each day used.
@@ -164,8 +164,9 @@ A Claude Code mod (a hooks plugin) that opens a **Gauges** pane:
 - Tasks, cost, and running subagents.
 
 It opens by itself in the desktop app and VS Code; `/gauges` toggles it anywhere. Gauges
-animate briefly when a value moves, never in a loop, and not at all when the OS asks for
-reduced motion. Colour is never the only signal: every gauge has a word or a number beside it.
+animate briefly when a value moves, never in a loop; they follow the OS reduced-motion
+setting, and `motion: off` stops animation outright. Colour is never the only signal: every
+gauge has a word or a number beside it, and each drawing's alt text carries its numbers.
 
 ### Install the mod
 
