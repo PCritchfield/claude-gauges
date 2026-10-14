@@ -82,7 +82,7 @@ test('needs-you sorts first, then working, then most recently idle', () => {
 
 import { pruneArgv } from './roster'
 
-test('pruning only ever targets the two gauges folders, one level, plain files', () => {
+test('pruning only ever targets the gauges folders, one level, plain files', () => {
   expect(pruneArgv('/Users/x/.claude/gauges/sessions')).toEqual([
     'find', '/Users/x/.claude/gauges/sessions', '-maxdepth', '1', '-type', 'f', '-mmin', '+1440', '-delete',
   ])

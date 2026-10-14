@@ -183,18 +183,31 @@ export function markerName(...parts: (string | number)[]): string {
     .slice(0, 120)
 }
 
+/** FNV-1a, 32-bit: a stable, cheap fingerprint for names (not for security). */
+export function fnv1a(text: string): number {
+  let h = 0x811c9dc5
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i)
+    h = Math.imul(h, 0x01000193) >>> 0
+  }
+  return h
+}
+
 // ---- Housekeeping: rows and markers untouched for a day go.
 
 export const PRUNE_AFTER_MINUTES = 24 * 60
-const PRUNABLE = /^\/(?:[^/\0]+\/)*\.claude\/gauges\/(sessions|toasts)$/
+/** Week markers stay a day past the longest window they describe. */
+export const WEEK_PRUNE_AFTER_MINUTES = 8 * 24 * 60
+const PRUNABLE = /^\/(?:[^/\0]+\/)*\.claude\/gauges\/(sessions|toasts|week|pr)$/
 
 /**
  * The `find` that deletes stale files in one of the mod's own folders, or null
  * when `dir` is anything else: it must be absolute, end in
- * /.claude/gauges/sessions or /.claude/gauges/toasts, and hold no `..`.
+ * /.claude/gauges/{sessions,toasts,week,pr}, and hold no `..`.
  * One level deep, plain files only; no shell runs it.
  */
-export function pruneArgv(dir: string): string[] | null {
+export function pruneArgv(dir: string, minutes = PRUNE_AFTER_MINUTES): string[] | null {
   if (!PRUNABLE.test(dir) || dir.split('/').includes('..')) return null
-  return ['find', dir, '-maxdepth', '1', '-type', 'f', '-mmin', `+${PRUNE_AFTER_MINUTES}`, '-delete']
+  if (!Number.isInteger(minutes) || minutes < 60) return null
+  return ['find', dir, '-maxdepth', '1', '-type', 'f', '-mmin', `+${minutes}`, '-delete']
 }
