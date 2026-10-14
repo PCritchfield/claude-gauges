@@ -562,6 +562,9 @@ export const register: Register = (on, options) => {
     await storeUsage($, usage)
     await refreshWeek($)
     visiblePoll ??= $.clock.every(VISIBLE_EVERY_MS, () => void refreshVisible($))
+    // A reload (new code, or an option changed) keeps an open pane's last tree
+    // until something redraws it: ask now, so the new drawing shows at once.
+    $.ui.invalidate('ui.render')
     // The terminal has a status line; the pane opens itself only where one is missing.
     if ((await $.session.surfaces()).some(s => s !== 'terminal')) void openPane($).catch(() => undefined)
 

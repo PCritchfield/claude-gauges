@@ -807,3 +807,14 @@ test('toasts carry no Discworld and no tool names beyond /compact', async ($, on
   expect(h.toasts.length).toBe(2)
   for (const t of h.toasts) expect(t).not.toMatch(/obsidian|lid|luggage|narrative|suitcase|wizard/i)
 })
+
+test('a reload (session.start again) redraws an open pane, so new code or options show at once', async ($, on) => {
+  v3Host(on)
+  const asked: string[] = []
+  on('ui.invalidate', (_$, e) => {
+    asked.push(String(e.event))
+    return { value: undefined }
+  })
+  await $.session.start(START)
+  expect(asked).toContain('ui.render')
+})
