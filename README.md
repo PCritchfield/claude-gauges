@@ -151,7 +151,8 @@ A Claude Code mod (a hooks plugin) that opens a **Gauges** pane:
 
 - **Waiting on you** first: any other session that needs an answer or an approval.
 - **This session:** the model, working or idle, and a one-line read of the context with what
-  to do about it ("Context 82%: save what matters, then /compact.").
+  to do about it ("Context 82%: save what matters, then /compact."), or in the playful style,
+  Claude's mood.
 - **Sessions:** once more than one is open, every local session with a status word, a small
   context bar, cost, and `+` when its repo has changes.
 - **Context** as a ring; **usage limits** as tanks coloured by pace (the same rule as the status
@@ -180,7 +181,7 @@ Answer `y` to add the marketplace, pick a scope (user is the usual one), then se
 
 | Option | Values | Default | What it does |
 |---|---|---|---|
-| `style` | `plain`, `playful` | `plain` | `playful` adds an ASCII cat whose face follows context, and a critter per session. Decoration only: status is always a word and a colour. |
+| `style` | `plain`, `playful` | `plain` | `plain` gives a dry line on what the context means and what to do. `playful` gives Claude a mood instead ("Claude thinks it’s past your bedtime.", "Claude is bored and quietly drafting plans for global domination."), picked from the time, session length, idle time, context, limits, cost and who is waiting on you; plus an ASCII cat whose face follows context, and a critter per session. Decoration only: status is always a word and a colour. |
 | `motion` | `system`, `off` | `system` | `system` animates on change unless the OS asks for reduced motion; `off` never animates. |
 | `terminalStatus` | on/off | off | Shows sessions waiting on you and off-pace limits in the terminal's status area. Leave it off when `statusline.sh` owns the terminal, or both say it. |
 | `warnPercent` | number | 50 | Context turns amber and toasts once. |

@@ -2,7 +2,8 @@
 import { expect, test } from 'claude-code/testing'
 
 import { ANIM_MS, blocks, cat, CRITTERS, critterFor, donutSvg, tankSvg, weekSvg, weekText } from './art'
-import { alertText, moodLine, moodOf, motionOf, paceText, span, styleOf } from './copy'
+import { alertText, moodLine, moodOf, moodText, motionOf, paceText, span, styleOf } from './copy'
+import type { MoodSignals } from './copy'
 import { etaOf } from './pace'
 import { pruneArgv, WEEK_PRUNE_AFTER_MINUTES } from './roster'
 import { parseWeekMarker, WEEK_MS, weekDays, weekMarkerName } from './week'
@@ -118,4 +119,47 @@ test('pruning covers the week and PR folders too, and never under an hour', () =
   expect(pruneArgv('/Users/x/.claude/gauges/pr')?.[1]).toBe('/Users/x/.claude/gauges/pr')
   expect(pruneArgv('/Users/x/.claude/gauges/sessions', 0)).toBeNull()
   expect(pruneArgv('/Users/x/.claude/gauges/weekly')).toBeNull()
+})
+
+// ---- The playful mood: an opinion, picked from what the mod can see.
+
+const at = (h: number, m = 0) => new Date(2026, 9, 13, h, m).getTime()
+const calm: MoodSignals = {
+  now: at(14),
+  ctxLevel: 0,
+  limitLevel: 0,
+  sessionMs: 30 * 60_000,
+  idleMs: 0,
+  isWorking: false,
+  turnMs: 0,
+  othersWaiting: 0,
+  costUsd: 1,
+}
+
+test('a calm afternoon: Claude is in a good mood', () => {
+  expect(moodText(calm)).toMatch(/^Claude (is happy|is humming along|is feeling helpful|likes this one)\.$/)
+})
+
+test('the mood is stable within the hour, so it never flickers', () => {
+  expect(moodText({ ...calm, now: at(14, 1) })).toBe(moodText({ ...calm, now: at(14, 59) }))
+})
+
+test('the mood has opinions, most pressing first', () => {
+  expect(moodText({ ...calm, limitLevel: 2 })).toMatch(/budget/)
+  expect(moodText({ ...calm, ctxLevel: 2, limitLevel: 2 })).toMatch(/budget/)
+  expect(moodText({ ...calm, ctxLevel: 2 })).toMatch(/\/compact/)
+  expect(moodText({ ...calm, now: at(1, 30) })).toMatch(/bedtime/)
+  expect(moodText({ ...calm, sessionMs: 5 * 3_600_000 })).toMatch(/break and some time with your family/)
+  expect(moodText({ ...calm, othersWaiting: 3 })).toMatch(/3 sessions/)
+  expect(moodText({ ...calm, isWorking: true, turnMs: 12 * 60_000 })).toMatch(/deep in thought/)
+  expect(moodText({ ...calm, idleMs: 45 * 60_000 })).toMatch(/global domination/)
+  expect(moodText({ ...calm, ctxLevel: 1 })).toMatch(/crowded/)
+  expect(moodText({ ...calm, costUsd: 60 })).toMatch(/\$60/)
+})
+
+test('mood lines stay neutral: no Discworld, no private tools', () => {
+  const all = [0, 1, 2].flatMap(c =>
+    [0, 2].flatMap(l => [at(3), at(14)].map(now => moodText({ ...calm, ctxLevel: c as 0 | 1 | 2, limitLevel: l as 0 | 2, now }))),
+  )
+  for (const t of all) expect(t).not.toMatch(/obsidian|luggage|wizard|octarine|narrative/i)
 })

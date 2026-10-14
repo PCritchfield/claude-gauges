@@ -26,6 +26,45 @@ export function moodLine(pct: number | undefined, level: Level): string {
   return `Context ${Math.round(pct)}%: plenty of room.`
 }
 
+/** What the playful mood is picked from: all of it the mod already knows. */
+export type MoodSignals = {
+  now: number
+  ctxLevel: Level
+  /** The worst pace level among the usage limits. */
+  limitLevel: Level
+  sessionMs: number
+  /** How long the session has sat idle; 0 while working. */
+  idleMs: number
+  isWorking: boolean
+  turnMs: number
+  /** Other sessions waiting on the person. */
+  othersWaiting: number
+  costUsd: number | undefined
+}
+
+const HAPPY = ['Claude is happy.', 'Claude is humming along.', 'Claude is feeling helpful.', 'Claude likes this one.']
+const H = 3_600_000
+
+/**
+ * The playful style's mood line: an opinion, not a reading. The most pressing
+ * thing wins; the calm line varies by the hour, never by the second, so it
+ * does not flicker. When context is tight the mood still says what to do.
+ */
+export function moodText(s: MoodSignals): string {
+  const hour = new Date(s.now).getHours()
+  if (s.limitLevel === 2) return 'Claude is rationing its thoughts: the usage budget is running thin.'
+  if (s.ctxLevel === 2) return 'Claude’s head is full. A /compact would feel like a holiday.'
+  if (hour >= 23 || hour < 5) return 'Claude thinks it’s past your bedtime.'
+  if (s.sessionMs >= 4 * H) return 'Claude thinks you need a break and some time with your family.'
+  if (s.othersWaiting >= 2) return `Claude feels popular: ${s.othersWaiting} sessions want you.`
+  if (s.isWorking && s.turnMs >= 10 * 60_000) return 'Claude is deep in thought. Maybe fetch a coffee.'
+  if (!s.isWorking && s.idleMs >= 30 * 60_000) return 'Claude is bored and quietly drafting plans for global domination.'
+  if (s.ctxLevel === 1) return 'Claude is getting a little crowded in here. Wrap up, then /compact.'
+  if (s.limitLevel === 1) return 'Claude is pacing itself; the usage limit is ahead of schedule.'
+  if (s.costUsd !== undefined && s.costUsd >= 50) return `Claude has noticed this session cost $${Math.floor(s.costUsd)}. It is choosing not to judge.`
+  return HAPPY[Math.floor(s.now / H) % HAPPY.length] ?? 'Claude is happy.'
+}
+
 export const STATUS_WORD = {
   'needs-you': 'needs you',
   working: 'working',

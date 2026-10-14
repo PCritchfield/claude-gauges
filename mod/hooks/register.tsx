@@ -13,6 +13,7 @@ import {
   money,
   moodLine,
   moodOf,
+  moodText,
   motionOf,
   paceText,
   span,
@@ -374,6 +375,8 @@ async function isPaneVisible($: EngineInterface): Promise<boolean> {
 async function refreshVisible($: EngineInterface) {
   try {
     if (!(await isPaneVisible($))) return
+    // The playful mood follows the clock (idle, bedtime), which no state write marks.
+    if (style === 'playful') $.ui.invalidate('ui.render')
     await refreshRepo($)
     await refreshPr($)
     await refreshWeek($)
@@ -786,9 +789,26 @@ export const register: Register = (on, options) => {
         </Box>
       </Box>
     )
+    // Plain: what the context means and what to do. Playful: Claude's mood.
+    const limitLevel = Math.max(0, ...(usage?.limits ?? []).map(l => paceOf(l, clockNow, thresholds).level)) as Level
+    const moodWords =
+      style === 'playful'
+        ? moodText({
+            now: clockNow,
+            ctxLevel,
+            limitLevel,
+            sessionMs: usage !== null && usage.startedAt > 0 ? clockNow - usage.startedAt : 0,
+            idleMs: !turn.isRunning && turn.endedAt > 0 ? clockNow - turn.endedAt : 0,
+            isWorking: turn.isRunning,
+            turnMs: turn.isRunning ? clockNow - turn.startedAt : 0,
+            othersWaiting: waiting.length,
+            costUsd: usage?.costUsd,
+          })
+        : moodLine(pct, ctxLevel)
+    const moodLevel = Math.max(ctxLevel, limitLevel) as Level
     const mood = (
-      <Text color={ctxLevel === 0 ? undefined : THEME[ctxLevel]} dimColor={ctxLevel === 0} wrap="truncate-end">
-        {moodLine(pct, ctxLevel)}
+      <Text color={moodLevel === 0 ? undefined : THEME[moodLevel]} dimColor={moodLevel === 0} wrap="truncate-end">
+        {moodWords}
       </Text>
     )
 

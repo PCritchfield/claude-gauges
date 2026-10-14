@@ -772,7 +772,22 @@ test('playful: the cat sweats at high context', { options: { style: 'playful' } 
   await $.session.measure(measure(85, 10, 10))
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await ui.find({ text: /\( O\.O;\)/ })).toBeDefined()
+  expect(await ui.find({ text: /Claude’s head is full/ })).toBeDefined()
+  expect(await ui.find({ text: /Context 85%: save what matters/ })).toBeUndefined()
   await ui.unmount()
+})
+
+test('playful: an idle pane is redrawn now and then, so the mood can move on', { options: { style: 'playful' } }, async ($, on) => {
+  const h = v3Host(on)
+  let redraws = 0
+  on('ui.invalidate', () => {
+    redraws++
+    return { value: undefined }
+  })
+  await $.session.start(START)
+  const before = redraws
+  await h.clock.advance(60_000)
+  expect(redraws).toBeGreaterThan(before)
 })
 
 test('with only this session, the Sessions section stays hidden', async ($, on) => {
