@@ -1,0 +1,135 @@
+// Drawings: the header cat, per-session critters (decoration only: status is
+// always a word and a colour), and the SVGs. Pure, so each is tested.
+//
+// SVGs are drawn as images, not interactive frames: a frame reloads on every
+// redraw, and the pane redraws each second while Claude works, so frames
+// flicker. Greys are mid-tone, so they read on light and dark alike.
+// Animation plays only for a change: each one is anchored to when the value
+// changed, with a negative delay, so a redraw mid-way resumes rather than
+// restarts, and once ANIM_MS has passed the drawing carries none. It honours
+// the OS reduced-motion setting through a CSS media query; motion: off is the
+// sure way to turn it off.
+import type { Change } from '../types'
+import type { Motion, Mood } from './copy'
+import type { Level } from './pace'
+import { fnv1a } from './roster'
+
+export const ANIM_MS = 700
+
+/** Hues that read on light and dark; the numbers beside them are themed Text. */
+export const HEX = ['#2f9e44', '#d08700', '#d03b3b'] as const
+
+const CAT_FACE: Record<Mood, string> = { calm: '( -.- )', alert: '( o.o )', sweaty: '( O.O;)' }
+
+/** The header cat (playful style): two ASCII lines, its face following context. */
+export function cat(mood: Mood): [string, string] {
+  return [' /\\_/\\ ', CAT_FACE[mood]]
+}
+
+export const CRITTERS = ['=^.^=', '(o.o)', '<:3)~', '(\\_/)', ">('')<", '{o,o}', '/\\oo/\\', '(=^w^)', '~(oo)~', '<(-.-)']
+
+/** A session's critter, the same in every pane for that id: ASCII, 6 cells wide. */
+export function critterFor(id: string): string {
+  return (CRITTERS[fnv1a(id) % CRITTERS.length] ?? '(o.o)').padEnd(6)
+}
+
+/** A text bar for surfaces without Svg; `marker` (0 to 1) marks the window's clock. */
+export function blocks(pct: number, width: number, marker?: number): string {
+  const filled = Math.round((clamp(pct) / 100) * width)
+  const cells = ('█'.repeat(filled) + '░'.repeat(width - filled)).split('')
+  if (marker !== undefined) cells[Math.min(width - 1, Math.round(marker * (width - 1)))] = '┃'
+  return cells.join('')
+}
+
+/** CSS that animates class `a` once, mid-way if `now` is past the change; '' when none should play. */
+function animation(keyframes: string, change: Change | undefined, now: number, motion: Motion): string {
+  if (motion === 'off' || change === undefined) return ''
+  const elapsed = now - change.at
+  if (elapsed < 0 || elapsed >= ANIM_MS) return ''
+  return (
+    '@media (prefers-reduced-motion: no-preference){' +
+    `.a{animation:g ${ANIM_MS}ms ease-out ${-Math.round(elapsed)}ms 1 both}}` +
+    `@keyframes g{${keyframes}}`
+  )
+}
+
+const SCHEME = '.t{fill:rgba(128,128,128,0.28)}.m{fill:rgba(128,128,128,0.9)}.l{font:9px sans-serif;fill:rgb(128,128,128)}'
+
+function svg(width: number, height: number, title: string, style: string, body: string): string {
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">` +
+    `<title>${escapeXml(title)}</title><style>${SCHEME}${style}</style>${body}</svg>`
+  )
+}
+
+/** A limit's tank: fill to `pct`, a tick where the window's clock stands. */
+export function tankSvg(o: {
+  pct: number
+  level: Level
+  width: number
+  title: string
+  marker?: number
+  change?: Change
+  now: number
+  motion: Motion
+}): string {
+  const h = 10
+  const w = (clamp(o.pct) / 100) * o.width
+  const from = o.change === undefined || w === 0 ? 1 : (clamp(o.change.from) / 100) * o.width / w
+  const anim = animation(`from{transform:scaleX(${from.toFixed(3)})}to{transform:scaleX(1)}`, o.change, o.now, o.motion)
+  const tick =
+    o.marker === undefined
+      ? ''
+      : `<rect class="m" x="${Math.min(o.width - 2, Math.max(0, o.marker * o.width - 1)).toFixed(1)}" width="2" height="${h}"/>`
+  return svg(
+    o.width,
+    h,
+    o.title,
+    `.a{transform-box:fill-box;transform-origin:0 50%}${anim}`,
+    `<rect class="t" width="${o.width}" height="${h}" rx="5"/>` +
+      `<rect class="a" width="${w.toFixed(1)}" height="${h}" rx="5" fill="${HEX[o.level]}"/>${tick}`,
+  )
+}
+
+/** The week: one bar per day of the window, scaled to the busiest day, its weekday letter under it. */
+export function weekSvg(o: {
+  days: { used: number; isFuture: boolean; isToday: boolean; letter: string }[]
+  title: string
+}): string {
+  const bw = 14
+  const gap = 6
+  const h = 28
+  const most = Math.max(1, ...o.days.map(d => d.used))
+  const bars = o.days
+    .map((d, i) => {
+      const x = i * (bw + gap)
+      const letter = `<text class="l" x="${x + bw / 2}" y="${h + 11}" text-anchor="middle">${escapeXml(d.letter)}</text>`
+      if (d.isFuture) return `<rect class="t" x="${x}" y="${h - 2}" width="${bw}" height="2" rx="1"/>${letter}`
+      const bh = Math.max(2, (d.used / most) * h)
+      return `<rect class="${d.isToday ? 'm' : 't'}" x="${x}" y="${(h - bh).toFixed(1)}" width="${bw}" height="${bh.toFixed(1)}" rx="2"/>${letter}`
+    })
+    .join('')
+  return svg(
+    o.days.length * (bw + gap) - gap,
+    h + 14,
+    o.title,
+    '',
+    bars,
+  )
+}
+
+const SPARK = ' ▁▂▃▄▅▆▇█'
+
+/** The week as text for the terminal: one cell per day. */
+export function weekText(days: { used: number; isFuture: boolean }[]): string {
+  const most = Math.max(1, ...days.map(d => d.used))
+  return days.map(d => (d.isFuture ? '·' : SPARK[Math.round((d.used / most) * 8)] ?? ' ')).join(' ')
+}
+
+function clamp(pct: number): number {
+  return Math.min(100, Math.max(0, pct))
+}
+
+function escapeXml(text: string): string {
+  return text.replace(/[<>&"']/g, ch => `&#${ch.charCodeAt(0)};`)
+}

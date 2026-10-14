@@ -46,3 +46,24 @@ jobs:
           git --version
       - name: tests
         run: /bin/bash tests/run.sh
+
+  mod:
+    # The engine's own checks for the mod: the marketplace, manifest and hooks
+    # module, then its tests (which run the shared contract vectors). Claude
+    # Code is pinned to an exact version. tsc needs the types the engine writes
+    # when it loads the mod, so it runs locally (see the README), not here.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: install Claude Code
+        run: npm install --global --no-fund --no-audit @anthropic-ai/claude-code@2.1.296
+      - name: validate
+        run: |
+          claude --version
+          claude plugin validate .
+          claude plugin validate mod
+      - name: test
+        run: claude plugin test mod

@@ -20,8 +20,6 @@ sessions="$HOME/.claude/gauges/sessions"
 NOW=1791920400
 export GAUGES_NOW=$NOW
 SELF=11111111-1111-1111-1111-111111111111
-FIVE_H=18000
-SEVEN_D=604800
 
 pass=0
 fail=0
@@ -177,52 +175,81 @@ name="COLUMNS unset defaults to 80"
 out=$(payload | env -u COLUMNS NO_COLOR=1 "$BASH" "$script")
 fits 80
 
-# ---- Limits: pace -------------------------------------------------------------
+# ---- Shared contract vectors ----------------------------------------------------
+# The same cases run in the mod's hooks/contract.test.ts. The file is a TS module
+# whose body, below a two-line header, is pure JSON.
 
-# five_hour at pct P with fraction E of the window elapsed.
-five_at() {
-  local pct=$1 elapsed=$2
-  printf '{"rate_limits":{"five_hour":{"used_percentage":%s,"resets_at":%s}}}' \
-    "$pct" "$(awk -v n="$NOW" -v w="$FIVE_H" -v e="$elapsed" 'BEGIN { printf "%d", n + w * (1 - e) }')"
-}
+vectors() { tail -n +3 "$here/../mod/hooks/contract-vectors.ts"; }
+vectors | jq -e . >/dev/null || { printf 'FAIL contract vectors do not parse\n'; exit 1; }
 
 RED=$'\033[38;5;196m'
 AMBER=$'\033[38;5;202m'
 SAFE=$'\033[38;5;70m'
 
-name="pace: on track"
-out=$(render_colour 120 "$(five_at 20 0.5)")
-has "${SAFE}5h 20%"
-lacks "↑"
+name="contract: constants match the script's"
+for k in WARN_AT HIGH_AT PACE_WARN PACE_HIGH MIN_ELAPSED ROSTER_VERSION STALE_SECS MAX_FILES; do
+  v=$(vectors | jq -r --arg k "$k" '.constants[$k]')
+  if grep -Eq "^[[:space:]]*$k=$v([[:space:]]|$)" "$script"; then ok; else bad "$k=$v not in statusline.sh"; fi
+done
 
-name="pace: amber at projected >= 100"
-out=$(render_colour 120 "$(five_at 55 0.5)")
-has "${AMBER}5h 55% ↑110%"
+# One line per case: name, kind, pct, secondsLeft, level, shownProjection.
+while IFS=$'\t' read -r vname kind pct left level shown; do
+  name="contract pace: $vname"
+  case "$kind" in five_hour) label=5h ;; seven_day) label=7d ;; *) label=spend ;; esac
+  case "$level" in 2) colour=$RED ;; 1) colour=$AMBER ;; *) colour=$SAFE ;; esac
+  override=$(jq -cn --arg kind "$kind" --argjson pct "$pct" --argjson now "$NOW" --arg left "$left" \
+    '{rate_limits: {($kind): {used_percentage: $pct, resets_at: (if $left == "null" then null else $now + ($left | tonumber) end)}}}')
+  pct_shown=$(jq -n --argjson p "$pct" '$p | round')
+  out=$(render_colour 120 "$override")
+  if [ "$shown" = "null" ]; then
+    has "${colour}$label $pct_shown%"
+    lacks "$label $pct_shown% ↑"
+  else
+    has "${colour}$label $pct_shown% ↑$shown%"
+  fi
+done < <(vectors | jq -r '.pace[] | [.name, .kind, .pct, .secondsLeft, .level, .shownProjection] | map(tostring) | @tsv')
 
-name="pace: red at projected >= 125"
-out=$(render_colour 120 "$(five_at 25 0.2)")
-has "${RED}5h 25% ↑125%"
+# Sanitize: each input becomes a waiting session's label, between two x's so
+# trimming cannot touch it; jq writes the file, as bash cannot hold a NUL.
+V=aaaaaaaa-0000-0000-0000-0000000000ff
+n=$(vectors | jq '.sanitize | length')
+i=0
+while [ "$i" -lt "$n" ]; do
+  reset_sessions
+  mkdir -p "$sessions"
+  vectors | jq -c --argjson i "$i" --arg id "$V" \
+    '{v: 1, id: $id, label: ("x" + .sanitize[$i].in + "x"), status: "needs-you", needs: null, since: 0}' >"$sessions/$V.json"
+  name="contract sanitize: $(vectors | jq -r --argjson i "$i" '.sanitize[$i].name')"
+  want=$(vectors | jq -r --argjson i "$i" '"x" + .sanitize[$i].out + "x"')
+  out=$(render 200)
+  has "◆ $want needs you"
+  i=$((i + 1))
+done
 
-name="pace: no projection before 10% elapsed"
-out=$(render_colour 120 "$(five_at 30 0.05)")
-has "${SAFE}5h 30%"
-lacks "↑"
-
-name="pace: raw backstop at 80 is red"
-out=$(render_colour 120 "$(five_at 85 0.95)")
-has "${RED}5h 85%"
-
-name="pace: backstop applies before 10% elapsed too"
-out=$(render_colour 120 "$(five_at 81 0.05)")
-has "${RED}5h 81%"
-
-name="seven_day uses its own window"
-out=$(render_colour 120 "{\"rate_limits\":{\"seven_day\":{\"used_percentage\":60,\"resets_at\":$((NOW + SEVEN_D / 2))}}}")
-has "${AMBER}7d 60% ↑120%"
-
-name="spend_limit falls back to fixed 50/80"
-out=$(render_colour 120 "{\"rate_limits\":{\"spend_limit\":{\"used_percentage\":62.8,\"resets_at\":$((NOW + 999999))}}}")
-has "${AMBER}spend 63%"
+# Records: dropped rows leave no roster line; kept ones show by label, and only
+# a needs-you row is flagged.
+n=$(vectors | jq '.records | length')
+i=0
+while [ "$i" -lt "$n" ]; do
+  reset_sessions
+  mkdir -p "$sessions"
+  file=$(vectors | jq -r --argjson i "$i" '.records[$i].file')
+  vectors | jq -j --argjson i "$i" '.records[$i].text | sub("PAD4096"; "x" * 4096)' >"$sessions/$file.json"
+  name="contract record: $(vectors | jq -r --argjson i "$i" '.records[$i].name')"
+  IFS=$'\t' read -r kept label status < <(vectors | jq -r --argjson i "$i" \
+    '.records[$i].expect | if . == null then ["no", "", ""] else ["yes", .label, .status] end | @tsv')
+  out=$(render 200)
+  if [ "$kept" = "no" ]; then
+    lines_are 2
+  elif [ "$status" = "needs-you" ]; then
+    has "◆ $label needs you"
+  else
+    has "1 session"
+    lacks "needs you"
+  fi
+  i=$((i + 1))
+done
+reset_sessions
 
 # ---- Roster -------------------------------------------------------------------
 
@@ -506,32 +533,7 @@ fits 80
 out=$(payload | COLUMNS=5 NO_COLOR=1 "$BASH" "$script")
 fits 20
 
-# ---- Pace boundaries ------------------------------------------------------------------
-
-name="pace: projected exactly 100 is amber"
-out=$(render_colour 120 "$(five_at 50 0.5)")
-has "${AMBER}5h 50% ↑100%"
-
-name="pace: raw exactly 80 is red"
-out=$(render_colour 120 "$(five_at 80 0.9)")
-has "${RED}5h 80%"
-
-name="pace: 10% elapsed boundary matches the mod (no projection)"
-out=$(render_colour 120 "$(five_at 15 0.1)")
-has "${SAFE}5h 15%"
-
-name="pace: reset time in the past clamps to a full window"
-out=$(render_colour 120 "{\"rate_limits\":{\"five_hour\":{\"used_percentage\":50,\"resets_at\":$((NOW - 60))}}}")
-has "${SAFE}5h 50%"
-
-name="pace: no reset time falls back to fixed 50/80"
-out=$(render_colour 120 '{"rate_limits":{"five_hour":{"used_percentage":55,"resets_at":null}}}')
-has "${AMBER}5h 55%"
-lacks "↑"
-
-name="pace: seven_day backstop"
-out=$(render_colour 120 "{\"rate_limits\":{\"seven_day\":{\"used_percentage\":81,\"resets_at\":$((NOW + 600000))}}}")
-has "${RED}7d 81%"
+# ---- Pace: input the vectors do not cover ------------------------------------------
 
 name="pace: non-numeric percentage hides the limit"
 out=$(render 120 '{"rate_limits":{"five_hour":{"used_percentage":"lots","resets_at":0}}}')

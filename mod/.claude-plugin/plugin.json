@@ -1,0 +1,51 @@
+{
+  "name": "gauges",
+  "version": "0.3.0",
+  "description": "A live pane for Claude Code: context, pace-based limits with ETA, the week, cost, repo and PR, and a roster of every local session",
+  "author": {
+    "name": "Phil Critchfield"
+  },
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "warnPercent": {
+      "type": "number",
+      "title": "Warn at (%)",
+      "description": "Context or a usage limit at or above this turns amber and toasts once",
+      "default": 50
+    },
+    "highPercent": {
+      "type": "number",
+      "title": "High at (%)",
+      "description": "Context or a usage limit at or above this turns red and toasts once",
+      "default": 80
+    },
+    "style": {
+      "type": "string",
+      "title": "Style",
+      "description": "plain: a dry line on context and what to do. playful: Claude's mood (bedtime, breaks, boredom), a cat whose face follows context, a critter per session. sassy: the same, PG-13 and sardonic. discworld: the same, from Ankh-Morpork, with the Luggage in the toasts",
+      "options": [
+        "plain",
+        "playful",
+        "sassy",
+        "discworld"
+      ],
+      "default": "plain"
+    },
+    "motion": {
+      "type": "string",
+      "title": "Motion",
+      "description": "system: gauges animate briefly when a value changes, unless the OS asks for reduced motion. off: never",
+      "options": [
+        "system",
+        "off"
+      ],
+      "default": "system"
+    },
+    "terminalStatus": {
+      "type": "boolean",
+      "title": "Terminal status line",
+      "description": "Show needs-you and off-pace limits in the terminal's status area. Leave off when statusline.sh from this repo owns the terminal",
+      "default": false
+    }
+  }
+}
