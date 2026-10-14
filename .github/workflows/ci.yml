@@ -51,7 +51,7 @@ jobs:
     # The engine's own checks for the mod: the marketplace, manifest and hooks
     # module, then its tests (which run the shared contract vectors). Claude
     # Code is pinned to an exact version. tsc needs the types the engine writes
-    # when it loads the mod, so it runs locally (see mod/README.md), not here.
+    # when it loads the mod, so it runs locally (see the README), not here.
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
