@@ -278,7 +278,10 @@ test('session start writes a private v1 record for this session', async ($, on) 
   expect(host.writes[0]?.path).toBe(SESSION_FILE)
   expect(lastRecord(host)).toMatchObject({ v: 1, id: 'abc-123', label: 'groupyBot', branch: 'main', status: 'idle', needs: null })
   expect(host.runs).toContainEqual(['chmod', '600', SESSION_FILE])
-  expect(host.runs).toContainEqual(['chmod', '700', '/Users/test/.claude/gauges', '/Users/test/.claude/gauges/sessions'])
+  const g = '/Users/test/.claude/gauges'
+  const dirs = [`${g}/sessions`, `${g}/toasts`, `${g}/week`, `${g}/pr`]
+  expect(host.runs).toContainEqual(['mkdir', '-p', '-m', '700', ...dirs])
+  expect(host.runs).toContainEqual(['chmod', '700', g, ...dirs])
 })
 
 test('changes are coalesced into one write after the delay', async ($, on) => {

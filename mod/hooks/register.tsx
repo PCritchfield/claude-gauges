@@ -191,8 +191,10 @@ async function startRoster($: EngineInterface, cwd: string) {
     [weekDir, WEEK_PRUNE_AFTER_MINUTES],
     [prDir, undefined],
   ])
+  // Every folder private, including ones made before this version or not yet written to.
+  await $.process.run(['mkdir', '-p', '-m', '700', dir, toastDir, weekDir, prDir])
   await writeRecord($)
-  await $.process.run(['chmod', '700', gauges, dir])
+  await $.process.run(['chmod', '700', gauges, dir, toastDir, weekDir, prDir])
   keepalive ??= $.clock.every(KEEPALIVE_MS, () => void writeRecord($))
   await readRoster($)
   rosterPoll ??= $.clock.every(READ_EVERY_MS, () => void readRoster($))
