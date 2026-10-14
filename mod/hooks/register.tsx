@@ -165,7 +165,7 @@ async function checkAlerts($: EngineInterface, usage: Usage) {
       // window and level. Context is this session's own.
       const isMine = r.id === 'context' || (await claimToast($, markerName('limit', r.id, r.resetsAt ?? 'none', r.level)))
       const resetsAt = r.resetsAt === undefined ? undefined : Date.parse(r.resetsAt)
-      if (isMine) $.ui.toast(alertText(r.id, r.pct, r.level, { now, resetsAt, shownProjection: r.shown }))
+      if (isMine) $.ui.toast(alertText(r.id, r.pct, r.level, { now, resetsAt, shownProjection: r.shown }, style))
     }
     levels[r.id] = r.level
   }
@@ -375,8 +375,8 @@ async function isPaneVisible($: EngineInterface): Promise<boolean> {
 async function refreshVisible($: EngineInterface) {
   try {
     if (!(await isPaneVisible($))) return
-    // The playful mood follows the clock (idle, bedtime), which no state write marks.
-    if (style === 'playful') $.ui.invalidate('ui.render')
+    // A voiced mood follows the clock (idle, bedtime), which no state write marks.
+    if (style !== 'plain') $.ui.invalidate('ui.render')
     await refreshRepo($)
     await refreshPr($)
     await refreshWeek($)
@@ -774,7 +774,7 @@ export const register: Register = (on, options) => {
     const face = cat(moodOf(ctxLevel))
     const header = (
       <Box flexDirection="row" gap={1}>
-        {style === 'playful' && (
+        {style !== 'plain' && (
           <Box key="cat" flexDirection="column">
             <Text color={THEME[ctxLevel]}>{face[0]}</Text>
             <Text color={THEME[ctxLevel]}>{face[1]}</Text>
@@ -789,11 +789,12 @@ export const register: Register = (on, options) => {
         </Box>
       </Box>
     )
-    // Plain: what the context means and what to do. Playful: Claude's mood.
+    // Plain: what the context means and what to do. Any other style: Claude's mood, in its voice.
     const limitLevel = Math.max(0, ...(usage?.limits ?? []).map(l => paceOf(l, clockNow, thresholds).level)) as Level
     const moodWords =
-      style === 'playful'
-        ? moodText({
+      style !== 'plain'
+        ? moodText(
+            {
             now: clockNow,
             ctxLevel,
             limitLevel,
@@ -803,7 +804,9 @@ export const register: Register = (on, options) => {
             turnMs: turn.isRunning ? clockNow - turn.startedAt : 0,
             othersWaiting: waiting.length,
             costUsd: usage?.costUsd,
-          })
+            },
+            style,
+          )
         : moodLine(pct, ctxLevel)
     const moodLevel = Math.max(ctxLevel, limitLevel) as Level
     const mood = (
@@ -827,7 +830,7 @@ export const register: Register = (on, options) => {
       return (
         <Box key={`session-${row.id}`} flexDirection="column">
           <Text wrap="truncate-end">
-            {style === 'playful' && <Text dimColor>{critterFor(row.id)}</Text>}
+            {style !== 'plain' && <Text dimColor>{critterFor(row.id)}</Text>}
             <Text color={row.status === 'needs-you' ? 'warning' : row.status === 'working' ? 'claude' : undefined}>
               {glyph(row.status)}
             </Text>{' '}

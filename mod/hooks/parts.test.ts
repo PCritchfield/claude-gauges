@@ -2,7 +2,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { ANIM_MS, blocks, cat, CRITTERS, critterFor, tankSvg, weekSvg, weekText } from './art'
-import { alertText, moodLine, moodOf, moodText, motionOf, paceText, span, styleOf } from './copy'
+import { alertText, MOOD_SITUATIONS, moodLine, moodOf, moodSituation, moodText, motionOf, paceText, span, STYLES, styleOf } from './copy'
 import type { MoodSignals } from './copy'
 import { etaOf } from './pace'
 import { pruneArgv, WEEK_PRUNE_AFTER_MINUTES } from './roster'
@@ -158,4 +158,74 @@ test('mood lines stay neutral: no Discworld, no private tools', () => {
     [0, 2].flatMap(l => [at(3), at(14)].map(now => moodText({ ...calm, ctxLevel: c as 0 | 1 | 2, limitLevel: l as 0 | 2, now }))),
   )
   for (const t of all) expect(t).not.toMatch(/obsidian|luggage|wizard|octarine|narrative/i)
+})
+
+// ---- More voices: sassy (PG-13) and discworld. Same situations, different lines.
+
+
+test('styles: plain, playful, sassy, discworld; anything else is plain', () => {
+  expect(STYLES).toEqual(['plain', 'playful', 'sassy', 'discworld'])
+  expect(styleOf('sassy')).toBe('sassy')
+  expect(styleOf('discworld')).toBe('discworld')
+  expect(styleOf('Discworld')).toBe('plain')
+})
+
+test('the situation is picked once, the same for every voice', () => {
+  expect(moodSituation({ ...calm, limitLevel: 2, ctxLevel: 2 })).toBe('limitHigh')
+  expect(moodSituation({ ...calm, now: at(2) })).toBe('bedtime')
+  expect(moodSituation(calm)).toBe('happy')
+})
+
+test('every voice has a line for every situation, and each voice sounds different', () => {
+  const signals: Record<string, MoodSignals> = {
+    limitHigh: { ...calm, limitLevel: 2 },
+    ctxHigh: { ...calm, ctxLevel: 2 },
+    bedtime: { ...calm, now: at(2) },
+    longSession: { ...calm, sessionMs: 5 * 3_600_000 },
+    popular: { ...calm, othersWaiting: 3 },
+    deepThought: { ...calm, isWorking: true, turnMs: 12 * 60_000 },
+    bored: { ...calm, idleMs: 45 * 60_000 },
+    ctxWarn: { ...calm, ctxLevel: 1 },
+    limitWarn: { ...calm, limitLevel: 1 },
+    pricey: { ...calm, costUsd: 60 },
+    happy: calm,
+  }
+  expect(Object.keys(signals).sort()).toEqual([...MOOD_SITUATIONS].sort())
+  for (const [situation, s] of Object.entries(signals)) {
+    expect(moodSituation(s)).toBe(situation)
+    const lines = (['playful', 'sassy', 'discworld'] as const).map(style => moodText(s, style))
+    expect(new Set(lines).size).toBe(3)
+    for (const line of lines) expect(line.length).toBeGreaterThan(10)
+  }
+  // The facts survive every voice.
+  for (const style of ['playful', 'sassy', 'discworld'] as const) {
+    expect(moodText({ ...calm, ctxLevel: 2 }, style)).toMatch(/\/compact/)
+    expect(moodText({ ...calm, othersWaiting: 3 }, style)).toMatch(/3/)
+    expect(moodText({ ...calm, costUsd: 60 }, style)).toMatch(/\$60/)
+  }
+})
+
+test('sassy stays PG-13, and no voice mentions the author’s private tools', () => {
+  const all = (['playful', 'sassy', 'discworld'] as const).flatMap(style =>
+    [calm, { ...calm, ctxLevel: 2 as const }, { ...calm, now: at(2) }, { ...calm, idleMs: 3_600_000 }, { ...calm, limitLevel: 2 as const }].map(
+      s => moodText(s, style),
+    ),
+  )
+  for (const t of all) {
+    expect(t).not.toMatch(/\b(fuck|shit|bitch|bastard|cunt|dick|piss)/i)
+    expect(t).not.toMatch(/obsidian/i)
+  }
+})
+
+test('toasts keep their facts in every voice; discworld brings the Luggage', () => {
+  const now = new Date(2026, 9, 13, 14, 0).getTime()
+  for (const style of STYLES) {
+    const t = alertText('context', 82, 2, { now }, style)
+    expect(t).toContain('Context at 82%')
+    expect(t).toContain('/compact')
+  }
+  expect(alertText('context', 82, 2, { now }, 'discworld')).toMatch(/^THE LID OPENS/)
+  expect(alertText('five_hour', 55, 1, { now }, 'discworld')).toMatch(/^The Lid That Watches/)
+  expect(alertText('context', 82, 2, { now }, 'plain')).toBe('Context at 82%. Save what matters, then /compact.')
+  expect(alertText('context', 82, 2, { now }, 'playful')).toBe('Context at 82%. Save what matters, then /compact.')
 })

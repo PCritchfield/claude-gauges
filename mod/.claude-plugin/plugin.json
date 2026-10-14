@@ -22,10 +22,12 @@
     "style": {
       "type": "string",
       "title": "Style",
-      "description": "plain: a dry line on context and what to do. playful: Claude's mood (bedtime, breaks, boredom), an ASCII cat whose face follows context, and a critter per session (decoration only)",
+      "description": "plain: a dry line on context and what to do. playful: Claude's mood (bedtime, breaks, boredom), a cat whose face follows context, a critter per session. sassy: the same, PG-13 and sardonic. discworld: the same, from Ankh-Morpork, with the Luggage in the toasts",
       "options": [
         "plain",
-        "playful"
+        "playful",
+        "sassy",
+        "discworld"
       ],
       "default": "plain"
     },

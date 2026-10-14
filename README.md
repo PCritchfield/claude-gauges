@@ -182,7 +182,7 @@ Answer `y` to add the marketplace, pick a scope (user is the usual one), then se
 
 | Option | Values | Default | What it does |
 |---|---|---|---|
-| `style` | `plain`, `playful` | `plain` | `plain` gives a dry line on what the context means and what to do. `playful` gives Claude a mood instead ("Claude thinks it’s past your bedtime.", "Claude is bored and quietly drafting plans for global domination."), picked from the time, session length, idle time, context, limits, cost and who is waiting on you; plus an ASCII cat whose face follows context, and a critter per session. Decoration only: status is always a word and a colour. |
+| `style` | `plain`, `playful`, `sassy`, `discworld` | `plain` | `plain` gives a dry line on what the context means and what to do. The others give Claude a mood instead, picked from the time, session length, idle time, context, limits, cost and who is waiting on you, plus an ASCII cat whose face follows context and a critter per session. `playful` is gentle ("Claude thinks it’s past your bedtime."); `sassy` is PG-13 and sardonic ("Four hours straight. Your family called; they want their human back."); `discworld` is from Ankh-Morpork, and its toasts bring the Luggage ("THE LID OPENS: Context at 82%…"). Every voice keeps the facts and the `/compact` advice; status is always a word and a colour. |
 | `motion` | `system`, `off` | `system` | `system` animates on change unless the OS asks for reduced motion; `off` never animates. |
 | `terminalStatus` | on/off | off | Shows sessions waiting on you and off-pace limits in the terminal's status area. Leave it off when `statusline.sh` owns the terminal, or both say it. |
 | `warnPercent` | number | 50 | Context turns amber and toasts once. |

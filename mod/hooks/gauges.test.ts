@@ -845,3 +845,19 @@ test('the pane draws images, never interactive frames, which reload (and flicker
   for (const svg of svgs) expect(svg.props.isInteractive).toBeUndefined()
   await ui.unmount()
 })
+
+for (const [style, line, toast] of [
+  ['sassy', /My head is stuffed/, /^Oh good\. Context at 85%/],
+  ['discworld', /thaums are piling up/, /^THE LID OPENS: Context at 85%/],
+] as const) {
+  test(`${style}: its own mood and toast voice, the cat too`, { options: { style } }, async ($, on) => {
+    const h = v3Host(on)
+    await $.session.start(START)
+    await $.session.measure(measure(85, 10, 10))
+    const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+    expect(await ui.find({ text: line })).toBeDefined()
+    expect(await ui.find({ text: /\( O\.O;\)/ })).toBeDefined()
+    await ui.unmount()
+    expect(h.toasts.some(t => toast.test(t))).toBe(true)
+  })
+}
