@@ -57,6 +57,8 @@ export type SessionRecord = {
   task: string | null
   agents: number
   startedAt: number
+  /** Files changed in the session's repo; null outside a repo or unread. Additive in v1. */
+  dirty?: number | null
 }
 
 /**
@@ -75,8 +77,35 @@ export type RosterRow = {
   costUsd: number | null
   task: string | null
   agents: number
+  dirty: number | null
   isMinimal: boolean
 }
+
+/** This session's repo as the pane shows it; `guarded` when the repo sets its own git filters and is left unread. */
+export type RepoInfo = {
+  guarded: boolean
+  branch: string | null
+  ahead: number
+  behind: number
+  changed: number
+  lastCommitAt: number | null
+  repo: string | null
+}
+
+export type PrInfo = {
+  number: number
+  state: 'OPEN' | 'MERGED' | 'CLOSED'
+  isDraft: boolean
+  title: string
+  review: 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | null
+  checks: { pass: number; fail: number; pending: number }
+}
+
+/** One slice of the weekly window: the weekly percentage used in it. */
+export type WeekDay = { start: number; used: number; isToday: boolean; isFuture: boolean }
+
+/** A value's last change (epoch ms), for animating from where it was. */
+export type Change = { from: number; at: number }
 
 declare module 'claude-code' {
   interface PluginState {
@@ -92,6 +121,10 @@ declare module 'claude-code' {
       needs: Needs | null
       roster: RosterRow[]
       isSessionsOpen: boolean
+      repo: RepoInfo | null
+      pr: PrInfo | null
+      week: WeekDay[]
+      changes: Record<string, Change>
     }
   }
 }

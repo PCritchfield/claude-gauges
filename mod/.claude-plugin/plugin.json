@@ -1,7 +1,7 @@
 {
   "name": "gauges",
-  "version": "0.2.0",
-  "description": "Live pane for every session: model, context, pace-based limits, cost, progress, and a roster of all local sessions",
+  "version": "0.3.0",
+  "description": "A live pane for Claude Code: context, pace-based limits with ETA, the week, cost, repo and PR, and a roster of every local session",
   "author": {
     "name": "Phil Critchfield"
   },
@@ -18,6 +18,32 @@
       "title": "High at (%)",
       "description": "Context or a usage limit at or above this turns red and toasts once",
       "default": 80
+    },
+    "style": {
+      "type": "string",
+      "title": "Style",
+      "description": "plain: words and colour only. playful: adds an ASCII cat whose face follows context, and a critter per session (decoration only)",
+      "options": [
+        "plain",
+        "playful"
+      ],
+      "default": "plain"
+    },
+    "motion": {
+      "type": "string",
+      "title": "Motion",
+      "description": "system: gauges animate briefly when a value changes, unless the OS asks for reduced motion. off: never",
+      "options": [
+        "system",
+        "off"
+      ],
+      "default": "system"
+    },
+    "terminalStatus": {
+      "type": "boolean",
+      "title": "Terminal status line",
+      "description": "Show needs-you and off-pace limits in the terminal's status area. Leave off when statusline.sh from this repo owns the terminal",
+      "default": false
     }
   }
 }

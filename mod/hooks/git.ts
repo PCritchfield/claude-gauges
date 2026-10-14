@@ -3,7 +3,10 @@
 // is skipped outright when the repo configures its own clean or process filter
 // (which status could run), and everything read back is parsed strictly and
 // sanitised. Pure: register.tsx runs these argv with $.process.run.
+import type { PrInfo } from '../types'
 import { cut, MAX_FILE_BYTES, sanitize } from './roster'
+
+export type { PrInfo }
 
 export const GIT_TIMEOUT_MS = 3000
 export const GH_TIMEOUT_MS = 8000
@@ -104,15 +107,6 @@ export function ownerRepo(url: string): string | null {
 export function prArgv(branch: string, repo: string): string[] | null {
   if (!BRANCH_ARG.test(branch) || !REPO.test(repo)) return null
   return ['gh', 'pr', 'view', branch, '-R', repo, '--json', 'number,state,isDraft,title,reviewDecision,statusCheckRollup']
-}
-
-export type PrInfo = {
-  number: number
-  state: 'OPEN' | 'MERGED' | 'CLOSED'
-  isDraft: boolean
-  title: string
-  review: 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | null
-  checks: { pass: number; fail: number; pending: number }
 }
 
 const STATES = new Set(['OPEN', 'MERGED', 'CLOSED'])

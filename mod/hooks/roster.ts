@@ -8,7 +8,7 @@ export const SESSION_ID = /^[A-Za-z0-9-]{1,64}$/
 const MAX_LABEL = 40
 const MAX_TASK = 80
 
-export type Identity = { id: string; label: string; branch: string | null }
+export type Identity = { id: string; label: string; branch: string | null; dirty?: number | null }
 
 export type Snapshot = {
   usage: Usage | null
@@ -51,6 +51,7 @@ export function buildRecord(identity: Identity, snapshot: Snapshot, isEnded = fa
     task,
     agents: snapshot.agents,
     startedAt: snapshot.usage?.startedAt ?? 0,
+    dirty: identity.dirty ?? null,
   }
 }
 
@@ -95,7 +96,7 @@ export function parseRecord(text: string, fileId: string): RosterRow | null {
   const label = str(r.label, MAX_LABEL) ?? fileId.slice(0, 8)
   const isMinimal = r.v > ROSTER_VERSION
   if (isMinimal) {
-    return { id: fileId, label, branch: null, status, needs: null, since: 0, model: null, contextPct: null, costUsd: null, task: null, agents: 0, isMinimal }
+    return { id: fileId, label, branch: null, status, needs: null, since: 0, model: null, contextPct: null, costUsd: null, task: null, agents: 0, dirty: null, isMinimal }
   }
   return {
     id: fileId,
@@ -109,6 +110,7 @@ export function parseRecord(text: string, fileId: string): RosterRow | null {
     costUsd: num(r.costUsd, 0, 1_000_000),
     task: str(r.task, MAX_TASK),
     agents: Math.round(num(r.agents, 0, 99) ?? 0),
+    dirty: r.dirty === undefined ? null : num(r.dirty, 0, 99_999),
     isMinimal,
   }
 }

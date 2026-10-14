@@ -6,6 +6,7 @@
 // Animation plays only for a change: each one is anchored to when the value
 // changed, with a negative delay, so a redraw mid-way resumes rather than
 // restarts, and once ANIM_MS has passed the drawing carries none.
+import type { Change } from '../types'
 import type { Motion, Mood } from './copy'
 import type { Level } from './pace'
 import { fnv1a } from './roster'
@@ -36,9 +37,6 @@ export function blocks(pct: number, width: number, marker?: number): string {
   if (marker !== undefined) cells[Math.min(width - 1, Math.round(marker * (width - 1)))] = '┃'
   return cells.join('')
 }
-
-/** A value's last change, for animating from where it was. */
-export type Change = { from: number; at: number }
 
 /** CSS that animates class `a` once, mid-way if `now` is past the change; '' when none should play. */
 function animation(keyframes: string, change: Change | undefined, now: number, motion: Motion): string {
@@ -114,8 +112,11 @@ export function donutSvg(o: {
   return svg(64, 64, o.title, anim, track + arc)
 }
 
-/** The week: one bar per day of the window, scaled to the busiest day. */
-export function weekSvg(o: { days: { used: number; isFuture: boolean; isToday: boolean }[]; title: string }): string {
+/** The week: one bar per day of the window, scaled to the busiest day, its weekday letter under it. */
+export function weekSvg(o: {
+  days: { used: number; isFuture: boolean; isToday: boolean; letter: string }[]
+  title: string
+}): string {
   const bw = 14
   const gap = 6
   const h = 28
@@ -123,12 +124,27 @@ export function weekSvg(o: { days: { used: number; isFuture: boolean; isToday: b
   const bars = o.days
     .map((d, i) => {
       const x = i * (bw + gap)
-      if (d.isFuture) return `<rect class="t" x="${x}" y="${h - 2}" width="${bw}" height="2" rx="1"/>`
+      const letter = `<text class="l" x="${x + bw / 2}" y="${h + 11}" text-anchor="middle">${escapeXml(d.letter)}</text>`
+      if (d.isFuture) return `<rect class="t" x="${x}" y="${h - 2}" width="${bw}" height="2" rx="1"/>${letter}`
       const bh = Math.max(2, (d.used / most) * h)
-      return `<rect class="${d.isToday ? 'm' : 't'}" x="${x}" y="${(h - bh).toFixed(1)}" width="${bw}" height="${bh.toFixed(1)}" rx="2"/>`
+      return `<rect class="${d.isToday ? 'm' : 't'}" x="${x}" y="${(h - bh).toFixed(1)}" width="${bw}" height="${bh.toFixed(1)}" rx="2"/>${letter}`
     })
     .join('')
-  return svg(o.days.length * (bw + gap) - gap, h, o.title, '', bars)
+  return svg(
+    o.days.length * (bw + gap) - gap,
+    h + 14,
+    o.title,
+    '.l{font:9px sans-serif;fill:rgba(0,0,0,0.55)}@media (prefers-color-scheme: dark){.l{fill:rgba(255,255,255,0.7)}}',
+    bars,
+  )
+}
+
+const SPARK = ' ▁▂▃▄▅▆▇█'
+
+/** The week as text for the terminal: one cell per day. */
+export function weekText(days: { used: number; isFuture: boolean }[]): string {
+  const most = Math.max(1, ...days.map(d => d.used))
+  return days.map(d => (d.isFuture ? '·' : SPARK[Math.round((d.used / most) * 8)] ?? ' ')).join(' ')
 }
 
 function clamp(pct: number): number {

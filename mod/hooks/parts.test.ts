@@ -1,7 +1,7 @@
 // The pane's pure parts: words, drawings, the week, the ETA.
 import { expect, test } from 'claude-code/testing'
 
-import { ANIM_MS, blocks, cat, CRITTERS, critterFor, donutSvg, tankSvg, weekSvg } from './art'
+import { ANIM_MS, blocks, cat, CRITTERS, critterFor, donutSvg, tankSvg, weekSvg, weekText } from './art'
 import { alertText, moodLine, moodOf, motionOf, paceText, span, styleOf } from './copy'
 import { etaOf } from './pace'
 import { pruneArgv, WEEK_PRUNE_AFTER_MINUTES } from './roster'
@@ -82,7 +82,8 @@ test('svgs carry a title, follow the scheme, and animate only within ANIM_MS of 
     '@keyframes',
   )
   expect(donutSvg({ pct: undefined, level: 0, title: 't', now: NOW, motion: 'system' })).toContain('stroke-dasharray="4 4"')
-  expect(weekSvg({ days: [{ used: 3, isFuture: false, isToday: true }], title: 'w' })).toContain('<title>w</title>')
+  expect(weekSvg({ days: [{ used: 3, isFuture: false, isToday: true, letter: 'M' }], title: 'w' })).toContain('<title>w</title>')
+  expect(weekText([{ used: 4, isFuture: false }, { used: 0, isFuture: false }, { used: 0, isFuture: true }])).toBe('█   ·')
 })
 
 test('week markers: whole percent 0-100 only, names parsed strictly', () => {

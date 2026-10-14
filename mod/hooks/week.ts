@@ -2,11 +2,11 @@
 // ~/.claude/gauges/week/<reset>-<pct> the first time it sees the weekly limit at
 // a whole percent (reset in epoch seconds); the file's mtime says when. Any
 // session can then rebuild the week from the folder. Names are untrusted.
+import type { WeekDay } from '../types'
+
 export const WEEK_MS = 7 * 86_400_000
 const DAY_MS = 86_400_000
 const MARKER = /^(\d{9,11})-(\d{1,3})$/
-
-export type WeekDay = { start: number; used: number; isToday: boolean; isFuture: boolean }
 
 /** The marker for a reading, or null when it is not a usable one. */
 export function weekMarkerName(resetsAtMs: number, pct: number): string | null {

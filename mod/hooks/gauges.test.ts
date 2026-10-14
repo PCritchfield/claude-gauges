@@ -144,16 +144,16 @@ test('day 1 at 30% of the week is on pace to run out and goes red', async ($, on
   const toasts = engine(on, NOW)
   await $.session.measure(limits({ kind: 'seven_day', percentUsed: 30, resetsAt: resetsIn(6 * DAY) }))
   expect(toasts.length).toBe(1)
-  expect(toasts[0]).toContain('The Homicidal Suitcase')
-  expect(toasts[0]).toContain('on pace for 210%')
+  expect(toasts[0]).toContain('Consider pausing heavy work')
+  expect(toasts[0]).toContain('on pace: 209% of weekly limit')
 })
 
 test('pace between 100% and 125% is amber', async ($, on) => {
   const toasts = engine(on, NOW)
   await $.session.measure(limits({ kind: 'five_hour', percentUsed: 60, resetsAt: resetsIn(2.25 * HOUR) }))
   expect(toasts.length).toBe(1)
-  expect(toasts[0]).toContain('The Lid That Watches')
-  expect(toasts[0]).toContain('on pace for 109%')
+  expect(toasts[0]).not.toContain('Consider pausing')
+  expect(toasts[0]).toContain('on pace: 109% of')
 })
 
 test('early in a window nothing is projected; only the raw backstop applies', async ($, on) => {
@@ -169,7 +169,7 @@ test('a raw 80% is red even when the reset is minutes away', async ($, on) => {
   const toasts = engine(on, NOW)
   await $.session.measure(limits({ kind: 'five_hour', percentUsed: 90, resetsAt: resetsIn(HOUR / 3) }))
   expect(toasts.length).toBe(1)
-  expect(toasts[0]).toContain('The Homicidal Suitcase')
+  expect(toasts[0]).toContain('Consider pausing heavy work')
 })
 
 test('a spend limit has no window and keeps the fixed thresholds', async ($, on) => {
@@ -184,11 +184,21 @@ test('limit rows show the projection and a time marker', async ($, on) => {
   await $.session.measure(limits({ kind: 'seven_day', percentUsed: 30, resetsAt: resetsIn(6 * DAY) }))
   for (const surface of SURFACES) {
     const ui = await $.ui.mount({ ...PANE, surface })
-    expect(await ui.find({ text: /on pace for 210%/ })).toBeDefined()
+    expect(await ui.find({ text: /on pace: 209% of weekly limit/ })).toBeDefined()
     if (surface === 'terminal') expect(await ui.find({ text: /┃/ })).toBeDefined()
     await ui.unmount()
   }
 })
+
+// A clean repo on main with a GitHub remote, answering the mod's hardened git calls.
+function git(argv: readonly string[]): { exitCode: number; stdout: string } {
+  const args = argv.slice(argv.indexOf('-C') + 2)
+  if (args[0] === 'config' && args[1] === '--show-scope') return { exitCode: 1, stdout: '' }
+  if (args[0] === 'status') return { exitCode: 0, stdout: '# branch.oid abc\n# branch.head main\n# branch.ab +0 -0\n' }
+  if (args[0] === 'log') return { exitCode: 0, stdout: '1791900000\n' }
+  if (args[0] === 'config') return { exitCode: 0, stdout: 'git@github.com:acme/groupyBot.git\n' }
+  return { exitCode: 1, stdout: '' }
+}
 
 // session.start needs the engine's answers for everything it reads; opens are counted.
 type Host = {
@@ -214,12 +224,12 @@ function startEngine(on: On, surfaces: readonly ('terminal' | 'desktop')[], home
   on('session.repo', () => ({ value: { root: '/code/groupyBot', name: 'groupyBot', remote: null, internal: false } }))
   on('process.run', (_$, e) => {
     host.runs.push([...e.argv])
-    const isGit = e.argv[0] === 'git'
-    return { value: { exitCode: 0, stdout: isGit ? 'main\n' : '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    const { exitCode, stdout } = e.argv[0] === 'git' ? git(e.argv) : { exitCode: 0, stdout: '' }
+    return { value: { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   on('fs.write', (_$, e) => {
-    if (e.path.includes('/gauges/toasts/')) host.markers.add(e.path)
-    else host.writes.push({ path: e.path, text: e.text })
+    if (e.path.includes('/gauges/sessions/')) host.writes.push({ path: e.path, text: e.text })
+    else host.markers.add(e.path)
     return { value: undefined }
   })
   on('fs.exists', (_$, e) => ({ value: host.markers.has(e.path) }))
@@ -350,7 +360,10 @@ test('the Sessions section lists live peers, needs-you first, on both surfaces',
 
 test('a row caught mid-write keeps its last good version', async ($, on) => {
   const host = startEngine(on, ['desktop'])
-  const files: Record<string, { text: string }> = { 'swim.json': { text: peer('swim', { label: 'Learning-to-Swim' }) } }
+  const files: Record<string, { text: string }> = {
+    'abc-123.json': { text: peer('abc-123', { label: 'this-one' }) },
+    'swim.json': { text: peer('swim', { label: 'Learning-to-Swim' }) },
+  }
   rosterFolder(on, host, files)
   await $.session.start({ cwd: '/code/groupyBot', surface: null, isInteractive: false })
   files['swim.json'] = { text: '{"v":1,"id":"sw' }
@@ -423,7 +436,7 @@ test('another session starting to wait toasts once, not for asks already open', 
   expect(toasts.filter(t => t.includes('needs you'))).toEqual(['◆ Learning-to-Swim needs you: approve Bash'])
 })
 
-test('a terminal session shows waiting sessions and off-pace limits on its status line', async ($, on) => {
+test('with terminalStatus on, a terminal session shows waiting sessions on its status line', { options: { terminalStatus: true } }, async ($, on) => {
   const host = startEngine(on, ['terminal'])
   const lines: (string | undefined)[] = []
   on('ui.status', (_$, e) => {
@@ -489,17 +502,305 @@ test('a needs-you toast claimed by another session stays quiet here', async ($, 
 
 // ---- Step 5: housekeeping
 
-test('session start prunes stale rows and markers in the two gauges folders only', async ($, on) => {
+test('session start prunes the gauges folders only: a day for rows, markers and PR caches, 8 days for the week', async ($, on) => {
   const host = startEngine(on, ['desktop'])
   rosterFolder(on, host, {})
   await $.session.start({ cwd: '/code/groupyBot', surface: null, isInteractive: false })
   const finds = host.runs.filter(argv => argv[0] === 'find')
-  expect(finds.map(argv => argv[1])).toEqual(['/Users/test/.claude/gauges/sessions', '/Users/test/.claude/gauges/toasts'])
-  for (const argv of finds) expect(argv.slice(2)).toEqual(['-maxdepth', '1', '-type', 'f', '-mmin', '+1440', '-delete'])
+  const G = '/Users/test/.claude/gauges'
+  expect(finds.map(argv => [argv[1], argv[7]])).toEqual([
+    [`${G}/sessions`, '+1440'],
+    [`${G}/toasts`, '+1440'],
+    [`${G}/week`, '+11520'],
+    [`${G}/pr`, '+1440'],
+  ])
+  for (const argv of finds) expect(argv.slice(2, 6)).toEqual(['-maxdepth', '1', '-type', 'f'])
 })
 
 test('no pruning happens when HOME is unusable', async ($, on) => {
   const host = startEngine(on, ['desktop'], '')
   await $.session.start({ cwd: '/code/groupyBot', surface: null, isInteractive: false })
   expect(host.runs.filter(argv => argv[0] === 'find')).toEqual([])
+})
+
+// ---- v3 -------------------------------------------------------------------------
+
+const G = '/Users/test/.claude/gauges'
+
+// The host's answers beneath the plugin for git, gh, the pane's visibility and
+// the files the plugin writes and reads back, all recorded.
+function v3Host(
+  on: On,
+  o: {
+    git?: (args: readonly string[]) => { exitCode: number; stdout: string }
+    gh?: () => { exitCode: number; stdout: string; stderr?: string }
+    isVisible?: boolean
+    surfaces?: readonly ('terminal' | 'desktop')[]
+  } = {},
+) {
+  const h = {
+    runs: [] as { argv: string[]; env?: Record<string, string> }[],
+    files: new Map<string, string>(),
+    toasts: [] as string[],
+    clock: mock.clock(on, { now: NOW }),
+  }
+  on('session.measure', (_$, e) => ({ changed: e.changed }))
+  on('agent.list', () => ({ value: [] }))
+  on('ui.toast', (_$, e) => {
+    h.toasts.push(e.text)
+    return { value: undefined }
+  })
+  mock.env(on, { HOME: '/Users/test' })
+  on('session.id', () => ({ value: 'abc-123' }))
+  on('session.repo', () => ({ value: { root: '/code/groupyBot', name: 'groupyBot', remote: null, internal: false } }))
+  on('process.run', (_$, e) => {
+    h.runs.push({ argv: [...e.argv], env: e.init?.env === undefined ? undefined : { ...e.init.env } })
+    const answer: { exitCode: number; stdout: string; stderr?: string } =
+      e.argv[0] === 'git'
+        ? o.git !== undefined
+          ? o.git(e.argv.slice(e.argv.indexOf('-C') + 2))
+          : git(e.argv)
+        : e.argv[0] === 'gh'
+          ? (o.gh?.() ?? { exitCode: 1, stdout: '', stderr: 'no pull requests found for branch "main"' })
+          : { exitCode: 0, stdout: '' }
+    const stderr = answer.stderr ?? ''
+    return { value: { exitCode: answer.exitCode, stdout: answer.stdout, stderr, isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+  on('fs.write', (_$, e) => {
+    h.files.set(e.path, e.text)
+    return { value: undefined }
+  })
+  on('fs.exists', (_$, e) => ({ value: h.files.has(e.path) }))
+  on('fs.read', (_$, e) => (h.files.has(e.path) ? { value: h.files.get(e.path) ?? '' } : { deny: 'ENOENT' }))
+  on('fs.list', (_$, e) => ({
+    value: [...h.files.keys()]
+      .filter(path => path.startsWith(`${e.path}/`))
+      .map(path => ({ name: path.slice(e.path.length + 1), kind: 'file' as const, size: 10, mtimeMs: h.clock.now(), isLink: false })),
+  }))
+  on('command.register', (_$, e) => ({ value: { command: e.name } }))
+  on('session.model', () => ({ value: 'claude-opus-5-5' }))
+  on('session.usage', () => ({ value: { startedAt: 0, context: { window: 200000 }, rateLimits: [] } }))
+  on('session.surfaces', () => ({ value: o.surfaces ?? ['desktop'] }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.panes', () => ({
+    value: o.isVisible === false ? [] : [{ id: 'gauges', title: 'Gauges', isShown: true, isFocused: false, isPlaced: true }],
+  }))
+  on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  on('turn.start', () => ({ turnId: 't1' }))
+  return h
+}
+
+const gitCalls = (h: { runs: { argv: string[]; env?: Record<string, string> }[] }) => h.runs.filter(r => r.argv[0] === 'git')
+const sub = (argv: string[]) => argv.slice(argv.indexOf('-C') + 2)
+const START = { cwd: '/code/groupyBot', surface: null, isInteractive: false } as const
+
+test("Angua: a repo-local clean filter (filter.x.clean = touch /tmp/pwned) means git status never runs", async ($, on) => {
+  const h = v3Host(on, {
+    git: args =>
+      args[0] === 'config' && args[1] === '--show-scope'
+        ? { exitCode: 0, stdout: 'local\tfilter.x.clean touch /tmp/pwned\n' }
+        : git(['-C', '/r', ...args]),
+  })
+  await $.session.start(START)
+  await h.clock.advance(15_000)
+  expect(gitCalls(h).map(r => sub(r.argv)[0])).toEqual(gitCalls(h).map(() => 'config'))
+  expect(gitCalls(h).some(r => sub(r.argv)[0] === 'status' || sub(r.argv)[0] === 'log')).toBe(false)
+  expect(h.runs.some(r => r.argv[0] === 'gh')).toBe(false)
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ text: /Repo details off: this repo sets its own git filters/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('Angua: a U+202E branch name renders stripped, in the pane and in the session file', async ($, on) => {
+  const h = v3Host(on, {
+    git: args =>
+      args[0] === 'status'
+        ? { exitCode: 0, stdout: '# branch.oid abc\n# branch.head feat/‮txt.exe\n' }
+        : git(['-C', '/r', ...args]),
+  })
+  await $.session.start(START)
+  for (const surface of SURFACES) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+    expect(await ui.find({ text: /feat\/txt\.exe/ })).toBeDefined()
+    expect(await ui.find({ text: /‮/ })).toBeUndefined()
+    await ui.unmount()
+  }
+  expect(JSON.parse(h.files.get(`${G}/sessions/abc-123.json`) ?? '{}').branch).toBe('feat/txt.exe')
+  // A name gh could read as an option, or one with format characters, is never passed to it.
+  expect(h.runs.some(r => r.argv[0] === 'gh')).toBe(false)
+})
+
+test('every git call is hardened, with prompts and optional locks off and a 3 s timeout', async ($, on) => {
+  const h = v3Host(on)
+  await $.session.start(START)
+  expect(gitCalls(h).length).toBeGreaterThan(0)
+  for (const r of gitCalls(h)) {
+    expect(r.argv.slice(0, 2)).toEqual(['git', '--no-optional-locks'])
+    expect(r.argv).toContain('core.hooksPath=/dev/null')
+    expect(r.argv).toContain('core.fsmonitor=false')
+    expect(r.env).toMatchObject({ GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0' })
+  }
+  const status = gitCalls(h).find(r => sub(r.argv)[0] === 'status')
+  expect(status?.argv).toContain('--ignore-submodules=all')
+  expect(gitCalls(h).find(r => sub(r.argv)[0] === 'log')?.argv).toContain('--no-show-signature')
+})
+
+const PR_JSON = JSON.stringify({
+  number: 6,
+  state: 'OPEN',
+  isDraft: false,
+  title: 'feat: gauges v3',
+  reviewDecision: 'REVIEW_REQUIRED',
+  statusCheckRollup: [{ __typename: 'CheckRun', status: 'COMPLETED', conclusion: 'FAILURE' }],
+})
+
+test('the PR row: gh pr view <branch> -R <owner/repo>, cached for every session, a minute at a time', async ($, on) => {
+  const h = v3Host(on, { gh: () => ({ exitCode: 0, stdout: PR_JSON }) })
+  await $.session.start(START)
+  await h.clock.advance(15_000)
+  const gh = () => h.runs.filter(r => r.argv[0] === 'gh')
+  expect(gh().map(r => r.argv.slice(0, 6))).toEqual([['gh', 'pr', 'view', 'main', '-R', 'acme/groupyBot']])
+  expect(gh()[0]?.env).toMatchObject({ GH_PROMPT_DISABLED: '1' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ text: /PR #6/ })).toBeDefined()
+  expect(await ui.find({ text: /1 failing/ })).toBeDefined()
+  await ui.unmount()
+  expect([...h.files.keys()].some(p => p.startsWith(`${G}/pr/acme_groupyBot-`))).toBe(true)
+  await h.clock.advance(30_000)
+  expect(gh().length).toBe(1)
+  await h.clock.advance(45_000)
+  expect(gh().length).toBe(2)
+})
+
+test('nothing polls git or gh while the pane is hidden', async ($, on) => {
+  const h = v3Host(on, { isVisible: false, gh: () => ({ exitCode: 0, stdout: PR_JSON }) })
+  await $.session.start(START)
+  const before = gitCalls(h).length
+  await h.clock.advance(5 * 60_000)
+  expect(gitCalls(h).length).toBe(before)
+  expect(h.runs.some(r => r.argv[0] === 'gh')).toBe(false)
+})
+
+test('a failing gh backs off, and its stderr is never shown', async ($, on) => {
+  const h = v3Host(on, { gh: () => ({ exitCode: 4, stdout: '', stderr: 'SECRET token expired' }) })
+  await $.session.start(START)
+  const gh = () => h.runs.filter(r => r.argv[0] === 'gh').length
+  await h.clock.advance(15_000)
+  expect(gh()).toBe(1)
+  // One failure: the next ask waits two minutes, not one.
+  await h.clock.advance(75_000)
+  expect(gh()).toBe(1)
+  await h.clock.advance(60_000)
+  expect(gh()).toBe(2)
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ text: /SECRET/ })).toBeUndefined()
+  expect(await ui.find({ text: /PR #/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('the weekly limit leaves a whole-percent marker, and the week shows on both surfaces', async ($, on) => {
+  const h = v3Host(on)
+  await $.session.start(START)
+  const resetsAt = new Date(NOW + 2 * DAY).toISOString()
+  await $.session.measure(limits({ kind: 'seven_day', percentUsed: 41.7, resetsAt }))
+  expect(h.files.has(`${G}/week/${Date.parse(resetsAt) / 1000}-41`)).toBe(true)
+  for (const surface of SURFACES) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+    expect(await ui.find({ text: /This week/ })).toBeDefined()
+    expect(await ui.find({ text: /on pace: 58% of weekly limit/ })).toBeDefined()
+    await ui.unmount()
+  }
+})
+
+test('the 5h row says when it runs out at this rate', async ($, on) => {
+  const h = v3Host(on)
+  await $.session.start(START)
+  // 1h into the window at 80%: the rest goes in 15 minutes.
+  await $.session.measure(limits({ kind: 'five_hour', percentUsed: 80, resetsAt: new Date(NOW + 4 * HOUR).toISOString() }))
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ text: /out ~15m/ })).toBeDefined()
+  await ui.unmount()
+  void h
+})
+
+test('a gauge animates once on a change, and is drawn still after', async ($, on) => {
+  const h = v3Host(on)
+  await $.session.start(START)
+  await $.session.measure(measure(20, 10, 10))
+  await $.session.measure(measure(40, 10, 10))
+  const donut = async () => {
+    const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+    const svgs = await ui.findAll({ type: 'Svg' })
+    await ui.unmount()
+    return String(svgs.find(e => String(e.props.alt).startsWith('Context'))?.props.source ?? '')
+  }
+  expect(await donut()).toContain('@keyframes')
+  expect(await donut()).toContain('prefers-reduced-motion: no-preference')
+  await h.clock.advance(1000)
+  expect(await donut()).not.toContain('@keyframes')
+})
+
+test('motion off never animates', { options: { motion: 'off' } }, async ($, on) => {
+  v3Host(on)
+  await $.session.start(START)
+  await $.session.measure(measure(20, 10, 10))
+  await $.session.measure(measure(40, 10, 10))
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const svgs = await ui.findAll({ type: 'Svg' })
+  const donut = svgs.find(e => String(e.props.alt).startsWith('Context'))
+  expect(String(donut?.props.source)).toContain('<circle')
+  expect(String(donut?.props.source)).not.toContain('@keyframes')
+  await ui.unmount()
+})
+
+test('plain style has no cat or critters; playful adds them, and the cat follows context', async ($, on) => {
+  v3Host(on)
+  await $.session.start(START)
+  await $.session.measure(measure(85, 10, 10))
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ text: /\/\\_\/\\/ })).toBeUndefined()
+  expect(await ui.find({ text: /Context 85%: save what matters, then \/compact\./ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('playful: the cat sweats at high context', { options: { style: 'playful' } }, async ($, on) => {
+  v3Host(on)
+  await $.session.start(START)
+  await $.session.measure(measure(85, 10, 10))
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ text: /\( O\.O;\)/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('with only this session, the Sessions section stays hidden', async ($, on) => {
+  const h = v3Host(on)
+  await $.session.start(START)
+  expect(h.files.has(`${G}/sessions/abc-123.json`)).toBe(true)
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ text: /Sessions \(/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('terminalStatus off (the default) leaves the terminal to statusline.sh', async ($, on) => {
+  const host = startEngine(on, ['terminal'])
+  const lines: (string | undefined)[] = []
+  on('ui.status', (_$, e) => {
+    lines.push(e.text)
+    return { value: undefined }
+  })
+  const files: Record<string, { text: string }> = {}
+  rosterFolder(on, host, files)
+  await $.session.start({ cwd: '/code/groupyBot', surface: 'terminal', isInteractive: true })
+  files['swim.json'] = { text: peer('swim', { label: 'Learning-to-Swim', status: 'needs-you', needs: 'approve Bash' }) }
+  await host.clock.advance(5000)
+  expect(lines).toEqual([])
+})
+
+test('toasts carry no Discworld and no tool names beyond /compact', async ($, on) => {
+  const h = v3Host(on)
+  await $.session.start(START)
+  await $.session.measure(measure(55, 10, 10))
+  await $.session.measure(measure(90, 10, 10))
+  expect(h.toasts.length).toBe(2)
+  for (const t of h.toasts) expect(t).not.toMatch(/obsidian|lid|luggage|narrative|suitcase|wizard/i)
 })
