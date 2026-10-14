@@ -847,7 +847,7 @@ test('the pane draws images, never interactive frames, which reload (and flicker
 })
 
 for (const [style, line, toast] of [
-  ['sassy', /My head is stuffed/, /^Oh good\. Context at 85%/],
+  ['sassy', /\/compact me|\/compact now/, /^Oh good\. Context at 85%/],
   ['discworld', /thaums are piling up/, /^THE LID OPENS: Context at 85%/],
 ] as const) {
   test(`${style}: its own mood and toast voice, the cat too`, { options: { style } }, async ($, on) => {

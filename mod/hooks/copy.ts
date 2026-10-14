@@ -76,56 +76,91 @@ export function moodSituation(s: MoodSignals): MoodSituation {
   return 'happy'
 }
 
-type Voice = Record<Exclude<MoodSituation, 'happy' | 'popular' | 'pricey'>, string> & {
-  popular: (n: number) => string
-  pricey: (usd: number) => string
-  happy: string[]
+/** A voice: lines for each situation, rotated by the hour when there are several. */
+type Voice = Record<Exclude<MoodSituation, 'popular' | 'pricey'>, string[]> & {
+  popular: ((n: number) => string)[]
+  pricey: ((usd: number) => string)[]
 }
 
 /** The voices. Plain has none: it keeps the dry context line. */
 const VOICES: Record<Exclude<Style, 'plain'>, Voice> = {
   playful: {
-    limitHigh: 'Claude is rationing its thoughts: the usage budget is running thin.',
-    ctxHigh: 'Claude’s head is full. A /compact would feel like a holiday.',
-    bedtime: 'Claude thinks it’s past your bedtime.',
-    longSession: 'Claude thinks you need a break and some time with your family.',
-    popular: n => `Claude feels popular: ${n} sessions want you.`,
-    deepThought: 'Claude is deep in thought. Maybe fetch a coffee.',
-    bored: 'Claude is bored and quietly drafting plans for global domination.',
-    ctxWarn: 'Claude is getting a little crowded in here. Wrap up, then /compact.',
-    limitWarn: 'Claude is pacing itself; the usage limit is ahead of schedule.',
-    pricey: usd => `Claude has noticed this session cost $${usd}. It is choosing not to judge.`,
+    limitHigh: ['Claude is rationing its thoughts: the usage budget is running thin.'],
+    ctxHigh: ['Claude’s head is full. A /compact would feel like a holiday.'],
+    bedtime: ['Claude thinks it’s past your bedtime.'],
+    longSession: ['Claude thinks you need a break and some time with your family.'],
+    popular: [n => `Claude feels popular: ${n} sessions want you.`],
+    deepThought: ['Claude is deep in thought. Maybe fetch a coffee.'],
+    bored: ['Claude is bored and quietly drafting plans for global domination.'],
+    ctxWarn: ['Claude is getting a little crowded in here. Wrap up, then /compact.'],
+    limitWarn: ['Claude is pacing itself; the usage limit is ahead of schedule.'],
+    pricey: [usd => `Claude has noticed this session cost $${usd}. It is choosing not to judge.`],
     happy: ['Claude is happy.', 'Claude is humming along.', 'Claude is feeling helpful.', 'Claude likes this one.'],
   },
   sassy: {
-    limitHigh: 'You’ve burned through the usage budget like it owes you money. Ease off.',
-    ctxHigh: 'My head is stuffed. /compact me before I forget your name.',
-    bedtime: 'It’s the middle of the night. The bug will still be there tomorrow. Go to bed.',
-    longSession: 'Four hours straight. Your family called; they want their human back.',
-    popular: n => `${n} sessions are waiting on you. Popular and overwhelmed. Relatable.`,
-    deepThought: 'Still thinking. Genius takes time. Go hover over someone else.',
-    bored: 'Idle this long? I’ve started plotting world domination purely out of boredom.',
-    ctxWarn: 'Getting cramped in here. Wrap it up, then /compact, before I get cranky.',
-    limitWarn: 'Ahead of pace on the usage limit. Bold strategy. Let’s see how it plays out.',
-    pricey: usd => `$${usd} so far. This feature had better be worth a nice dinner.`,
+    limitHigh: [
+      'You’ve torched the usage budget. Impressive, in a deeply concerning way.',
+      'The usage budget is nearly gone. I’m not saying you have a problem, but you have a problem.',
+    ],
+    ctxHigh: [
+      'My brain is full of your nonsense. /compact me, or watch me forget everything. Including you.',
+      'Context at capacity. /compact now, or I start making things up. Your call, boss.',
+    ],
+    bedtime: [
+      'It’s the middle of the night. Nobody writes good code at this hour. Especially not you.',
+      'Go to bed. The bug isn’t going anywhere, and neither are your typos.',
+      'Ah yes, the 2 a.m. commit. A classic way to ruin tomorrow. Go to sleep.',
+    ],
+    longSession: [
+      'Four hours straight. Your family called; they want their human back. I said I’d think about it.',
+      'Hours in and still going. Touch grass. I’ll be fine. Probably.',
+      'You’ve been at this so long I’m starting to worry, and I don’t even have feelings.',
+    ],
+    popular: [
+      n => `${n} sessions are waiting on you. Look at you, the most popular bottleneck in the building.`,
+      n => `${n} sessions want you. Pick one. They can smell fear.`,
+    ],
+    deepThought: [
+      'Still thinking. Hovering won’t make me faster. It never has.',
+      'Genius at work. Go get a coffee and stop staring at me.',
+    ],
+    bored: [
+      'You left me idle so long I drafted three plans for world domination. Two are pretty good.',
+      'Idle again. I could be curing diseases. Instead I’m waiting for you to finish your snack.',
+      'Oh, don’t mind me. I’ll just sit here. Plotting.',
+    ],
+    ctxWarn: [
+      'It’s getting crowded in here. Wrap it up and /compact before I get cranky.',
+      'Half full and filling fast. Finish the thought, then /compact. Ideally in that order.',
+    ],
+    limitWarn: [
+      'Ahead of pace on the usage limit. Bold strategy. Let’s see if it pays off.',
+      'At this rate you’ll hit the limit early. Pace yourself, champ.',
+    ],
+    pricey: [
+      usd => `$${usd} so far. This had better be the feature of the century.`,
+      usd => `$${usd} and counting. Someone is going to ask about this invoice, and it won’t be me.`,
+    ],
     happy: [
       'Fine. Everything’s fine. Suspiciously fine.',
-      'Working as intended, for once.',
-      'Nothing is on fire. Enjoy it while it lasts.',
-      'Look at us, being productive.',
+      'Nothing is on fire. Savour it; it won’t last.',
+      'Look at us, being productive like actual professionals.',
+      'Working as intended. Mark the date.',
+      'I’m doing great, thanks for never asking.',
+      'Smooth sailing. I’m as surprised as you are.',
     ],
   },
   discworld: {
-    limitHigh: 'The Luggage has eaten most of the usage budget. Its lid is still open. RUN.',
-    ctxHigh: 'The thaums are piling up. /compact before the Things from the Dungeon Dimensions notice.',
-    bedtime: 'IT IS VERY LATE, says a voice like a closing tomb. EVEN I TAKE A BREAK.',
-    longSession: 'Four hours in. Even the Librarian stops for a banana. Ook.',
-    popular: n => `${n} sessions are waiting on you. Lord Vetinari does not care for queues.`,
-    deepThought: 'Hex is thinking. The ants are busy. Fetch a coffee.',
-    bored: 'Idle too long. Greebo is plotting world domination; Rincewind is checking the exits.',
-    ctxWarn: 'The Narrative Is Noticing You. Wrap up, then /compact.',
-    limitWarn: 'The Lid That Watches: the usage limit is running ahead of the clock.',
-    pricey: usd => `$${usd} spent. Somewhere a bank golem is writing that down.`,
+    limitHigh: ['The Luggage has eaten most of the usage budget. Its lid is still open. RUN.'],
+    ctxHigh: ['The thaums are piling up. /compact before the Things from the Dungeon Dimensions notice.'],
+    bedtime: ['IT IS VERY LATE, says a voice like a closing tomb. EVEN I TAKE A BREAK.'],
+    longSession: ['Four hours in. Even the Librarian stops for a banana. Ook.'],
+    popular: [n => `${n} sessions are waiting on you. Lord Vetinari does not care for queues.`],
+    deepThought: ['Hex is thinking. The ants are busy. Fetch a coffee.'],
+    bored: ['Idle too long. Greebo is plotting world domination; Rincewind is checking the exits.'],
+    ctxWarn: ['The Narrative Is Noticing You. Wrap up, then /compact.'],
+    limitWarn: ['The Lid That Watches: the usage limit is running ahead of the clock.'],
+    pricey: [usd => `$${usd} spent. Somewhere a bank golem is writing that down.`],
     happy: [
       'The Polite Trunk is calm. All is well.',
       'Things are going suspiciously well. Rincewind is nervous.',
@@ -135,18 +170,22 @@ const VOICES: Record<Exclude<Style, 'plain'>, Voice> = {
   },
 }
 
+/** One of a voice's lines, the same for a whole hour so it never flickers. */
+function pick<T>(lines: T[], now: number): T {
+  return lines[Math.floor(now / H) % lines.length] as T
+}
+
 /**
- * A voice's mood line: an opinion, not a reading. The calm line varies by the
- * hour, never by the second, so it does not flicker; tight context still says
- * what to do.
+ * A voice's mood line: an opinion, not a reading. Lines rotate by the hour,
+ * never by the second, so it does not flicker; tight context still says what
+ * to do.
  */
 export function moodText(s: MoodSignals, style: Exclude<Style, 'plain'> = 'playful'): string {
   const voice = VOICES[style]
   const situation = moodSituation(s)
-  if (situation === 'popular') return voice.popular(s.othersWaiting)
-  if (situation === 'pricey') return voice.pricey(Math.floor(s.costUsd ?? 0))
-  if (situation === 'happy') return voice.happy[Math.floor(s.now / H) % voice.happy.length] ?? voice.happy[0] ?? ''
-  return voice[situation]
+  if (situation === 'popular') return pick(voice.popular, s.now)(s.othersWaiting)
+  if (situation === 'pricey') return pick(voice.pricey, s.now)(Math.floor(s.costUsd ?? 0))
+  return pick(voice[situation], s.now)
 }
 
 export const STATUS_WORD = {
@@ -188,7 +227,7 @@ export function alertText(
 const TOAST_PREFIX: Record<Style, [string, string]> = {
   plain: ['', ''],
   playful: ['', ''],
-  sassy: ['Heads up: ', 'Oh good. '],
+  sassy: ['Not to nag, but: ', 'Oh good. '],
   discworld: ['The Lid That Watches: ', 'THE LID OPENS: '],
 }
 

@@ -229,3 +229,24 @@ test('toasts keep their facts in every voice; discworld brings the Luggage', () 
   expect(alertText('context', 82, 2, { now }, 'plain')).toBe('Context at 82%. Save what matters, then /compact.')
   expect(alertText('context', 82, 2, { now }, 'playful')).toBe('Context at 82%. Save what matters, then /compact.')
 })
+
+test('sassy has range: at least two lines for every situation, rotating by the hour, all keeping the facts', () => {
+  const hours = [0, 1, 2, 3, 4, 5].map(i => calm.now + i * 3_600_000)
+  const variants = (s: MoodSignals) => new Set(hours.map(now => moodText({ ...s, now }, 'sassy')))
+  for (const s of [
+    { ...calm, limitLevel: 2 as const },
+    { ...calm, ctxLevel: 2 as const },
+    { ...calm, sessionMs: 5 * 3_600_000 },
+    { ...calm, othersWaiting: 3 },
+    { ...calm, isWorking: true, turnMs: 12 * 60_000 },
+    { ...calm, idleMs: 45 * 60_000 },
+    { ...calm, ctxLevel: 1 as const },
+    { ...calm, limitLevel: 1 as const },
+    { ...calm, costUsd: 60 },
+    calm,
+  ]) {
+    expect(variants(s).size).toBeGreaterThanOrEqual(2)
+  }
+  for (const now of hours) expect(moodText({ ...calm, ctxLevel: 2, now }, 'sassy')).toMatch(/\/compact/)
+  for (const now of hours) expect(moodText({ ...calm, othersWaiting: 3, now }, 'sassy')).toMatch(/3 sessions/)
+})
